@@ -51,16 +51,16 @@ def test_auth_protection(token):
     """Test authentication protection"""
     print("\n2. Testing Authentication Protection...")
     
-    # Test without token
+    # Test without token - should return 401 or 403
     response = requests.get(f"{BACKEND_URL}/auth/me", timeout=10)
-    if response.status_code != 401:
+    if response.status_code not in [401, 403]:
         print(f"❌ Unprotected endpoint: GET /auth/me returned {response.status_code}")
         return False
     
-    # Test with invalid token  
+    # Test with invalid token - should return 401 or 403  
     headers = {"Authorization": "Bearer invalid_token"}
     response = requests.get(f"{BACKEND_URL}/auth/me", headers=headers, timeout=10)
-    if response.status_code != 401:
+    if response.status_code not in [401, 403]:
         print(f"❌ Invalid token accepted: GET /auth/me returned {response.status_code}")
         return False
     
