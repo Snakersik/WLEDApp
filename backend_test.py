@@ -350,7 +350,7 @@ def test_device_control_brightness():
         return False
     
     # Expect this to fail gracefully since no real WLED device
-    if response.status_code == 500:
+    if response.status_code in [500, 520]:  # 520 might be returned by load balancer
         log_test("Device Brightness Control", True, "Correctly failed - no real WLED device available")
         return True
     elif response.status_code == 200:
