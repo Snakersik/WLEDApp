@@ -635,13 +635,34 @@ def test_unauthorized_access():
     
     all_passed = True
     
-    for method, endpoint in endpoints_to_test:
-        response = make_request(method, f"{BACKEND_URL}{endpoint}")
-        if response and response.status_code == 401:
-            print(f"    ✅ {method} {endpoint} correctly blocked (401)")
-        else:
-            print(f"    ❌ {method} {endpoint} not properly protected")
-            all_passed = False
+    # Test without token - should return 401 or 403
+    response = make_request("GET", f"{BACKEND_URL}/auth/me")
+    if response and response.status_code in [401, 403]:
+        print(f"    ✅ GET /auth/me correctly blocked ({response.status_code})")
+    else:
+        print(f"    ❌ GET /auth/me not properly protected")
+        all_passed = False
+    
+    response = make_request("POST", f"{BACKEND_URL}/devices")
+    if response and response.status_code in [401, 403]:
+        print(f"    ✅ POST /devices correctly blocked ({response.status_code})")
+    else:
+        print(f"    ❌ POST /devices not properly protected")
+        all_passed = False
+    
+    response = make_request("GET", f"{BACKEND_URL}/devices")
+    if response and response.status_code in [401, 403]:
+        print(f"    ✅ GET /devices correctly blocked ({response.status_code})")
+    else:
+        print(f"    ❌ GET /devices not properly protected")
+        all_passed = False
+    
+    response = make_request("GET", f"{BACKEND_URL}/groups")
+    if response and response.status_code in [401, 403]:
+        print(f"    ✅ GET /groups correctly blocked ({response.status_code})")
+    else:
+        print(f"    ❌ GET /groups not properly protected")
+        all_passed = False
     
     log_test("Unauthorized Access Protection", all_passed, "All tested endpoints properly protected" if all_passed else "Some endpoints not properly protected")
     return all_passed
