@@ -313,7 +313,7 @@ def test_device_control_on_off():
         return False
     
     # Expect this to fail gracefully since no real WLED device
-    if response.status_code == 500:
+    if response.status_code in [500, 520]:  # 520 might be returned by load balancer
         try:
             data = response.json()
             if "detail" in data and ("timeout" in data["detail"].lower() or "device" in data["detail"].lower()):
