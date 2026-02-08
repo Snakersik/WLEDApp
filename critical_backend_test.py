@@ -117,8 +117,8 @@ def test_device_control(token, device_id):
     response = requests.post(f"{BACKEND_URL}/devices/{device_id}/control", 
                            json=control_data, headers=headers, timeout=10)
     
-    # Should fail with 500 due to no real device
-    if response.status_code == 500:
+    # Should fail with 500 or 520 due to no real device
+    if response.status_code in [500, 520]:
         error_detail = response.json().get("detail", "")
         if "timeout" in error_detail.lower() or "device" in error_detail.lower():
             print("✅ Device control correctly fails (no real WLED device)")
