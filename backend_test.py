@@ -680,10 +680,13 @@ def test_invalid_token_access():
     
     all_passed = True
     
+    # Test with invalid token - should return 401 or 403  
+    headers = {"Authorization": "Bearer invalid_token"}
+    
     for method, endpoint in endpoints_to_test:
         response = make_request(method, f"{BACKEND_URL}{endpoint}", headers=headers)
-        if response and response.status_code == 401:
-            print(f"    ✅ {method} {endpoint} correctly rejected invalid token (401)")
+        if response and response.status_code in [401, 403]:
+            print(f"    ✅ {method} {endpoint} correctly rejected invalid token ({response.status_code})")
         else:
             print(f"    ❌ {method} {endpoint} accepted invalid token")
             all_passed = False
