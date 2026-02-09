@@ -19,6 +19,15 @@ import Slider from '@react-native-community/slider';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + '/api';
 
+}
+
+interface Preset {
+  id: string;
+  name: string;
+  description: string;
+  is_premium: boolean;
+}
+
 const PRESET_COLORS = [
   { name: 'Red', color: '#FF0000', rgb: [255, 0, 0] },
   { name: 'Green', color: '#00FF00', rgb: [0, 255, 0] },
@@ -31,26 +40,13 @@ const PRESET_COLORS = [
   { name: 'White', color: '#FFFFFF', rgb: [255, 255, 255] },
 ];
 
-interface Group {
-  id: string;
-  name: string;
-  device_ids: string[];
-}
-
-interface Preset {
-  id: string;
-  name: string;
-  description: string;
-  is_premium: boolean;
-}
-
 export default function GroupControlScreen() {
   const { id } = useLocalSearchParams();
   const { token, user } = useAuth();
   const { t } = useLanguage();
   const router = useRouter();
   
-  const [group, setGroup] = useState<Group | null>(null);
+  const [device, setGroup] = useState<Group | null>(null);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [loading, setLoading] = useState(true);
   const [controlling, setControlling] = useState(false);
@@ -66,57 +62,39 @@ export default function GroupControlScreen() {
 
   const fetchData = async () => {
     try {
-      const [groupRes, presetsRes] = await Promise.all([
-        axios.get(`${API_URL}/groups`, {
+      const [deviceRes, presetsRes] = await Promise.all([
+        axios.get(`${API_URL}/devices/${id}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         axios.get(`${API_URL}/presets`),
       ]);
-      const foundGroup = groupRes.data.find((g: Group) => g.id === id);
-      if (!foundGroup) {
-        throw new Error('Group not found');
-      }
-      setGroup(foundGroup);
+      setGroup(deviceRes.data);
       setPresets(presetsRes.data);
     } catch (error: any) {
       console.error('Failed to fetch data:', error);
-      Alert.alert('Error', 'Failed to load group');
+      Alert.alert(t('error'), t('failedToLoad'));
       router.back();
     } finally {
       setLoading(false);
     }
   };
 
-  const hexToRgb = (hex: string) => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result
-      ? [
-          parseInt(result[1], 16),
-          parseInt(result[2], 16),
-          parseInt(result[3], 16),
-        ]
-      : [255, 0, 0];
-  };
-
   const controlGroup = async (params: any) => {
+    if (!device?.is_online) {
+      Alert.alert(t('deviceOffline'), t('deviceNotReachable'));
+      return;
+    }
+
     setControlling(true);
     try {
-      const response = await axios.post(
-        `${API_URL}/groups/${id}/control`,
+      await axios.post(
+        `${API_URL}/devices/${id}/control`,
         params,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
-      const failedDevices = response.data.results.filter((r: any) => !r.success);
-      if (failedDevices.length > 0) {
-        Alert.alert(
-          'Partial Success',
-          `${failedDevices.length} device(s) failed to respond`
-        );
-      }
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || 'Failed to control group';
-      Alert.alert('Error', errorMsg);
+      const errorMsg = error.response?.data?.detail || t('failedToControl');
+      Alert.alert(t('error'), errorMsg);
     } finally {
       setControlling(false);
     }
@@ -175,8 +153,13 @@ export default function GroupControlScreen() {
           <Ionicons name="arrow-back" size={24} color="#f1f5f9" />
         </TouchableOpacity>
         <View style={styles.headerInfo}>
-          <Text style={styles.title}>{group?.name}</Text>
-          <Text style={styles.deviceCount}>{group?.device_ids.length} devices</Text>
+          <Text style={styles.title}>{device?.name}</Text>
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, device?.is_online ? styles.statusOnline : styles.statusOffline]} />
+            <Text style={styles.statusText}>
+              {device?.is_online ? t('online') : t('offline')}
+            </Text>
+          </View>
         </View>
         <View style={styles.placeholder} />
       </View>
@@ -185,20 +168,20 @@ export default function GroupControlScreen() {
         {/* Power Control */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Power</Text>
+            <Text style={styles.sectionTitle}>{t('power')}</Text>
             <Switch
               value={isOn}
               onValueChange={handleTogglePower}
               trackColor={{ false: '#334155', true: '#818cf8' }}
               thumbColor={isOn ? '#6366f1' : '#94a3b8'}
-              disabled={controlling}
+              disabled={controlling || !device?.is_online}
             />
           </View>
         </View>
 
         {/* Brightness Control */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Brightness</Text>
+          <Text style={styles.sectionTitle}>{t('brightness')}</Text>
           <View style={styles.sliderContainer}>
             <Ionicons name="sunny-outline" size={20} color="#94a3b8" />
             <Slider
@@ -211,7 +194,7 @@ export default function GroupControlScreen() {
               minimumTrackTintColor="#6366f1"
               maximumTrackTintColor="#334155"
               thumbTintColor="#6366f1"
-              disabled={controlling}
+              disabled={controlling || !device?.is_online}
             />
             <Text style={styles.brightnessValue}>{Math.round(brightness)}</Text>
           </View>
@@ -219,28 +202,30 @@ export default function GroupControlScreen() {
 
         {/* Color Picker */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Color</Text>
-          <View style={styles.colorPickerContainer}>
-            <TriangleColorPicker
-              oldColor={selectedColor}
-              color={selectedColor}
-              onColorChange={handleColorChange}
-              onColorSelected={handleColorComplete}
-              style={styles.colorPicker}
-            />
+          <Text style={styles.sectionTitle}>{t('color')}</Text>
+          <View style={styles.colorGrid}>
+            {PRESET_COLORS.map((color, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.colorButton,
+                  { backgroundColor: color.color },
+                  selectedColor.name === color.name && styles.colorButtonSelected
+                ]}
+                onPress={() => handleColorSelect(color)}
+                disabled={controlling || !device?.is_online}
+              >
+                {selectedColor.name === color.name && (
+                  <Ionicons name="checkmark" size={24} color="#000" />
+                )}
+              </TouchableOpacity>
+            ))}
           </View>
-          <TouchableOpacity
-            style={[styles.applyButton, controlling && styles.applyButtonDisabled]}
-            onPress={handleColorComplete}
-            disabled={controlling}
-          >
-            <Text style={styles.applyButtonText}>Apply Color to Group</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Presets */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Presets</Text>
+          <Text style={styles.sectionTitle}>{t('presets')}</Text>
           <View style={styles.presetsGrid}>
             {presets.map((preset) => {
               const isLocked = preset.is_premium && !user?.has_subscription;
@@ -255,7 +240,7 @@ export default function GroupControlScreen() {
                     isLocked && styles.presetCardLocked,
                   ]}
                   onPress={() => handlePresetSelect(preset.id, preset.is_premium)}
-                  disabled={controlling}
+                  disabled={controlling || !device?.is_online}
                 >
                   {isLocked && (
                     <View style={styles.lockBadge}>
@@ -320,7 +305,23 @@ const styles = StyleSheet.create({
     color: '#f1f5f9',
     marginBottom: 4,
   },
-  deviceCount: {
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  statusOnline: {
+    backgroundColor: '#10b981',
+  },
+  statusOffline: {
+    backgroundColor: '#6b7280',
+  },
+  statusText: {
     fontSize: 12,
     color: '#94a3b8',
   },
@@ -359,30 +360,23 @@ const styles = StyleSheet.create({
     minWidth: 40,
     textAlign: 'right',
   },
-  colorPickerContainer: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 16,
+  colorGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  colorButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#334155',
   },
-  colorPicker: {
-    height: 250,
-    width: '100%',
-  },
-  applyButton: {
-    backgroundColor: '#6366f1',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  applyButtonDisabled: {
-    opacity: 0.6,
-  },
-  applyButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+  colorButtonSelected: {
+    borderColor: '#6366f1',
+    borderWidth: 4,
   },
   presetsGrid: {
     flexDirection: 'row',
