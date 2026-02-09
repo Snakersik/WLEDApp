@@ -1034,4 +1034,23 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     marginLeft: 8,
   },
+  
+  // Web Info Box
+  webInfoBox: {
+    backgroundColor: '#312e81',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#818cf8',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  webInfoText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#f1f5f9',
+    marginLeft: 12,
+    lineHeight: 20,
+  },
 });
