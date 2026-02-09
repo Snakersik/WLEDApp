@@ -14,8 +14,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import axios from 'axios';
 import { useRouter } from 'expo-router';
+import { WLEDService } from '../../src/services/wledService';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + '/api';
 
@@ -30,6 +32,7 @@ interface Device {
 
 export default function DevicesScreen() {
   const { token, user } = useAuth();
+  const { t } = useLanguage();
   const router = useRouter();
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,10 +52,19 @@ export default function DevicesScreen() {
       const response = await axios.get(`${API_URL}/devices`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setDevices(response.data);
+      
+      // Check online status for each device
+      const devicesWithStatus = await Promise.all(
+        response.data.map(async (device: Device) => {
+          const isOnline = await WLEDService.isOnline(device.ip_address);
+          return { ...device, is_online: isOnline };
+        })
+      );
+      
+      setDevices(devicesWithStatus);
     } catch (error: any) {
       console.error('Failed to fetch devices:', error);
-      Alert.alert('Error', 'Failed to load devices');
+      Alert.alert(t('error'), t('failedToLoad'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -66,7 +78,7 @@ export default function DevicesScreen() {
 
   const handleAddDevice = async () => {
     if (!deviceName || !deviceIP) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert(t('error'), t('fillAllFields'));
       return;
     }
 
@@ -84,15 +96,19 @@ export default function DevicesScreen() {
         }
       );
       
-      setDevices([...devices, response.data]);
+      // Check if device is actually online
+      const isOnline = await WLEDService.isOnline(deviceIP);
+      const newDevice = { ...response.data, is_online: isOnline };
+      
+      setDevices([...devices, newDevice]);
       setModalVisible(false);
       setDeviceName('');
       setDeviceIP('');
       setDeviceLEDCount('119');
-      Alert.alert('Success', 'Device added successfully');
+      Alert.alert(t('success'), t('deviceAdded'));
     } catch (error: any) {
       console.error('Failed to add device:', error);
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to add device');
+      Alert.alert(t('error'), error.response?.data?.detail || t('failedToLoad'));
     } finally {
       setAdding(false);
     }
@@ -100,12 +116,12 @@ export default function DevicesScreen() {
 
   const handleDeleteDevice = (deviceId: string, deviceName: string) => {
     Alert.alert(
-      'Delete Device',
-      `Are you sure you want to delete "${deviceName}"?`,
+      t('deleteDevice'),
+      `${t('deleteDeviceConfirm')} "${deviceName}"?`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('delete'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -113,9 +129,9 @@ export default function DevicesScreen() {
                 headers: { Authorization: `Bearer ${token}` },
               });
               setDevices(devices.filter(d => d.id !== deviceId));
-              Alert.alert('Success', 'Device deleted');
+              Alert.alert(t('success'), t('deviceDeleted'));
             } catch (error: any) {
-              Alert.alert('Error', 'Failed to delete device');
+              Alert.alert(t('error'), t('failedToLoad'));
             }
           },
         },
@@ -135,7 +151,7 @@ export default function DevicesScreen() {
           <View style={styles.deviceText}>
             <Text style={styles.deviceName}>{item.name}</Text>
             <Text style={styles.deviceIP}>{item.ip_address}</Text>
-            <Text style={styles.deviceLEDs}>{item.led_count} LEDs</Text>
+            <Text style={styles.deviceLEDs}>{item.led_count} {t('leds')}</Text>
           </View>
         </View>
         <View style={[styles.statusDot, item.is_online ? styles.statusOnline : styles.statusOffline]} />
@@ -154,7 +170,7 @@ export default function DevicesScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>My Devices</Text>
+        <Text style={styles.title}>{t('myDevices')}</Text>
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => setModalVisible(true)}
@@ -166,8 +182,8 @@ export default function DevicesScreen() {
       {devices.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="bulb-outline" size={64} color="#475569" />
-          <Text style={styles.emptyText}>No devices yet</Text>
-          <Text style={styles.emptySubtext}>Add your first WLED device to get started</Text>
+          <Text style={styles.emptyText}>{t('noDevices')}</Text>
+          <Text style={styles.emptySubtext}>{t('noDevicesSubtext')}</Text>
         </View>
       ) : (
         <FlatList
@@ -190,7 +206,7 @@ export default function DevicesScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Device</Text>
+              <Text style={styles.modalTitle}>{t('addDevice')}</Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#94a3b8" />
               </TouchableOpacity>
@@ -198,7 +214,7 @@ export default function DevicesScreen() {
 
             <TextInput
               style={styles.modalInput}
-              placeholder="Device Name"
+              placeholder={t('deviceName')}
               placeholderTextColor="#64748b"
               value={deviceName}
               onChangeText={setDeviceName}
@@ -206,7 +222,7 @@ export default function DevicesScreen() {
 
             <TextInput
               style={styles.modalInput}
-              placeholder="IP Address (e.g., 192.168.1.100)"
+              placeholder={t('ipAddress')}
               placeholderTextColor="#64748b"
               value={deviceIP}
               onChangeText={setDeviceIP}
@@ -215,7 +231,7 @@ export default function DevicesScreen() {
 
             <TextInput
               style={styles.modalInput}
-              placeholder="LED Count"
+              placeholder={t('ledCount')}
               placeholderTextColor="#64748b"
               value={deviceLEDCount}
               onChangeText={setDeviceLEDCount}
@@ -230,7 +246,7 @@ export default function DevicesScreen() {
               {adding ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.modalButtonText}>Add Device</Text>
+                <Text style={styles.modalButtonText}>{t('addDevice')}</Text>
               )}
             </TouchableOpacity>
           </View>
