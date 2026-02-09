@@ -167,6 +167,18 @@ export const translations = {
     scheduleDisabled: 'Harmonogram wyłączony',
     selectAtLeastOneDay: 'Wybierz przynajmniej jeden dzień',
     invalidTime: 'Nieprawidłowy czas',
+    
+    // Auto Discovery
+    scanNetwork: 'Skanuj sieć',
+    scanQRCode: 'Skanuj QR Code',
+    manualIP: 'Wpisz IP ręcznie',
+    scanning: 'Skanowanie...',
+    foundDevices: 'Znalezione urządzenia',
+    noDevicesFound: 'Nie znaleziono urządzeń WLED',
+    scanningNetwork: 'Szukam urządzeń WLED w sieci...',
+    scanQRToAdd: 'Zeskanuj QR code z WLED',
+    cameraPermissionDenied: 'Brak dostępu do kamery',
+    cameraPermissionMessage: 'Aplikacja potrzebuje dostępu do kamery aby skanować QR code',
   },
 
   en: {
@@ -335,6 +347,18 @@ export const translations = {
     scheduleDisabled: 'Schedule disabled',
     selectAtLeastOneDay: 'Select at least one day',
     invalidTime: 'Invalid time',
+    
+    // Auto Discovery
+    scanNetwork: 'Scan Network',
+    scanQRCode: 'Scan QR Code',
+    manualIP: 'Enter IP Manually',
+    scanning: 'Scanning...',
+    foundDevices: 'Found Devices',
+    noDevicesFound: 'No WLED devices found',
+    scanningNetwork: 'Searching for WLED devices on network...',
+    scanQRToAdd: 'Scan QR code from WLED',
+    cameraPermissionDenied: 'Camera permission denied',
+    cameraPermissionMessage: 'App needs camera access to scan QR codes',
   },
 
   de: {
@@ -503,6 +527,18 @@ export const translations = {
     scheduleDisabled: 'Zeitplan deaktiviert',
     selectAtLeastOneDay: 'Wählen Sie mindestens einen Tag',
     invalidTime: 'Ungültige Zeit',
+    
+    // Auto Discovery
+    scanNetwork: 'Netzwerk scannen',
+    scanQRCode: 'QR-Code scannen',
+    manualIP: 'IP manuell eingeben',
+    scanning: 'Scannen...',
+    foundDevices: 'Gefundene Geräte',
+    noDevicesFound: 'Keine WLED-Geräte gefunden',
+    scanningNetwork: 'Suche nach WLED-Geräten im Netzwerk...',
+    scanQRToAdd: 'QR-Code von WLED scannen',
+    cameraPermissionDenied: 'Kameraberechtigung verweigert',
+    cameraPermissionMessage: 'App benötigt Kamerazugriff zum Scannen von QR-Codes',
   },
 };
 
