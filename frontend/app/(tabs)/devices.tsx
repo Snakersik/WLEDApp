@@ -18,8 +18,12 @@ import { useLanguage } from '../../src/context/LanguageContext';
 import axios from 'axios';
 import { useRouter } from 'expo-router';
 import { WLEDService } from '../../src/services/wledService';
+import { WLEDDiscovery, DiscoveredDevice } from '../../src/services/discoveryService';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + '/api';
+
+type AddMode = 'select' | 'scan' | 'setup' | 'manual';
+type SetupStep = 1 | 2 | 3 | 4;
 
 interface Device {
   id: string;
@@ -38,10 +42,23 @@ export default function DevicesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  
+  // Add mode states
+  const [addMode, setAddMode] = useState<AddMode>('select');
+  const [scanning, setScanning] = useState(false);
+  const [discoveredDevices, setDiscoveredDevices] = useState<DiscoveredDevice[]>([]);
+  
+  // Manual mode states
   const [deviceName, setDeviceName] = useState('');
   const [deviceIP, setDeviceIP] = useState('');
   const [deviceLEDCount, setDeviceLEDCount] = useState('119');
   const [adding, setAdding] = useState(false);
+  
+  // Setup mode states
+  const [setupStep, setSetupStep] = useState<SetupStep>(1);
+  const [wifiSSID, setWifiSSID] = useState('');
+  const [wifiPassword, setWifiPassword] = useState('');
+  const [setupProgress, setSetupProgress] = useState('');
 
   useEffect(() => {
     fetchDevices();
