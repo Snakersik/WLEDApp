@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -21,11 +22,12 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
+  const { t } = useLanguage();
   const router = useRouter();
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert(t('error'), t('fillAllFields'));
       return;
     }
 
@@ -34,7 +36,7 @@ export default function LoginScreen() {
       await login(email, password);
       router.replace('/(tabs)/devices');
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message);
+      Alert.alert(t('loginFailed'), error.message);
     } finally {
       setLoading(false);
     }
@@ -49,8 +51,8 @@ export default function LoginScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.header}>
             <Ionicons name="bulb" size={64} color="#818cf8" />
-            <Text style={styles.title}>WLED Manager</Text>
-            <Text style={styles.subtitle}>Control your LED devices</Text>
+            <Text style={styles.title}>{t('appName')}</Text>
+            <Text style={styles.subtitle}>{t('appSubtitle')}</Text>
           </View>
 
           <View style={styles.form}>
@@ -58,7 +60,7 @@ export default function LoginScreen() {
               <Ionicons name="mail-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Email"
+                placeholder={t('email')}
                 placeholderTextColor="#64748b"
                 value={email}
                 onChangeText={setEmail}
@@ -71,7 +73,7 @@ export default function LoginScreen() {
               <Ionicons name="lock-closed-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Password"
+                placeholder={t('password')}
                 placeholderTextColor="#64748b"
                 value={password}
                 onChangeText={setPassword}
@@ -87,14 +89,14 @@ export default function LoginScreen() {
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.buttonText}>Sign In</Text>
+                <Text style={styles.buttonText}>{t('signIn')}</Text>
               )}
             </TouchableOpacity>
 
             <View style={styles.footer}>
-              <Text style={styles.footerText}>Don't have an account? </Text>
+              <Text style={styles.footerText}>{t('dontHaveAccount')} </Text>
               <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
-                <Text style={styles.linkText}>Sign Up</Text>
+                <Text style={styles.linkText}>{t('signUp')}</Text>
               </TouchableOpacity>
             </View>
           </View>
