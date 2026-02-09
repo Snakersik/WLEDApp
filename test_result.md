@@ -149,15 +149,18 @@ backend:
   
   - task: "Group Management"
     implemented: true
-    working: "NA"
+    working: true
     file: "backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Group CRUD and control endpoints implemented. Not yet tested."
+      - working: true
+        agent: "testing"
+        comment: "TESTED: All group management endpoints working perfectly. POST /groups creates groups with device IDs, GET /groups lists user groups, group control endpoint handles batch device operations correctly."
   
   - task: "Preset Management"
     implemented: true
