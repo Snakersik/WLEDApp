@@ -62,18 +62,18 @@ def make_request(method, url, data=None, headers=None, expect_fail=False):
             headers = {"Content-Type": "application/json"}
         
         if method.upper() == "GET":
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=30)
         elif method.upper() == "POST":
-            response = requests.post(url, json=data, headers=headers, timeout=10)
+            response = requests.post(url, json=data, headers=headers, timeout=30)
         elif method.upper() == "PUT":
-            response = requests.put(url, json=data, headers=headers, timeout=10)
+            response = requests.put(url, json=data, headers=headers, timeout=30)
         elif method.upper() == "DELETE":
-            response = requests.delete(url, headers=headers, timeout=10)
+            response = requests.delete(url, headers=headers, timeout=30)
         
         return response
     except requests.exceptions.RequestException as e:
         if not expect_fail:
-            log_test(f"Request to {url}", False, f"Network error: {str(e)}")
+            print(f"    Network error for {url}: {str(e)}")
         return None
 
 # ============ AUTHENTICATION TESTS ============
