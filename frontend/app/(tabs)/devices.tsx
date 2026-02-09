@@ -93,44 +93,6 @@ export default function DevicesScreen() {
     fetchDevices();
   };
 
-  const handleAddDevice = async () => {
-    if (!deviceName || !deviceIP) {
-      Alert.alert(t('error'), t('fillAllFields'));
-      return;
-    }
-
-    setAdding(true);
-    try {
-      const response = await axios.post(
-        `${API_URL}/devices`,
-        {
-          name: deviceName,
-          ip_address: deviceIP,
-          led_count: parseInt(deviceLEDCount) || 119,
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      
-      // Check if device is actually online
-      const isOnline = await WLEDService.isOnline(deviceIP);
-      const newDevice = { ...response.data, is_online: isOnline };
-      
-      setDevices([...devices, newDevice]);
-      setModalVisible(false);
-      setDeviceName('');
-      setDeviceIP('');
-      setDeviceLEDCount('119');
-      Alert.alert(t('success'), t('deviceAdded'));
-    } catch (error: any) {
-      console.error('Failed to add device:', error);
-      Alert.alert(t('error'), error.response?.data?.detail || t('failedToLoad'));
-    } finally {
-      setAdding(false);
-    }
-  };
-
   const handleDeleteDevice = (deviceId: string, deviceName: string) => {
     Alert.alert(
       t('deleteDevice'),
