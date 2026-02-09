@@ -378,54 +378,296 @@ export default function DevicesScreen() {
         visible={modalVisible}
         animationType="slide"
         transparent
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={closeModal}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
+            {/* Header with close button */}
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{t('addDevice')}</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
+              <Text style={styles.modalTitle}>
+                {addMode === 'select' && t('addDevice')}
+                {addMode === 'scan' && t('foundDevices')}
+                {addMode === 'setup' && t('setupMode')}
+                {addMode === 'manual' && t('addDevice')}
+              </Text>
+              <TouchableOpacity onPress={closeModal}>
                 <Ionicons name="close" size={24} color="#94a3b8" />
               </TouchableOpacity>
             </View>
 
-            <TextInput
-              style={styles.modalInput}
-              placeholder={t('deviceName')}
-              placeholderTextColor="#64748b"
-              value={deviceName}
-              onChangeText={setDeviceName}
-            />
+            <ScrollView style={styles.modalScroll}>
+              {/* MODE SELECT - Choose method */}
+              {addMode === 'select' && (
+                <View style={styles.methodSelector}>
+                  <TouchableOpacity 
+                    style={styles.methodButton}
+                    onPress={startMDNSScan}
+                  >
+                    <View style={styles.methodIcon}>
+                      <Ionicons name="search" size={32} color="#818cf8" />
+                    </View>
+                    <View style={styles.methodTextContainer}>
+                      <Text style={styles.methodButtonTitle}>{t('scanNetwork')}</Text>
+                      <Text style={styles.methodButtonDesc}>{t('scanningNetwork')}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#64748b" />
+                  </TouchableOpacity>
 
-            <TextInput
-              style={styles.modalInput}
-              placeholder={t('ipAddress')}
-              placeholderTextColor="#64748b"
-              value={deviceIP}
-              onChangeText={setDeviceIP}
-              keyboardType="numeric"
-            />
+                  <TouchableOpacity 
+                    style={styles.methodButton}
+                    onPress={startSetupMode}
+                  >
+                    <View style={[styles.methodIcon, { backgroundColor: '#422006' }]}>
+                      <Ionicons name="settings" size={32} color="#f59e0b" />
+                    </View>
+                    <View style={styles.methodTextContainer}>
+                      <Text style={styles.methodButtonTitle}>{t('setupMode')}</Text>
+                      <Text style={styles.methodButtonDesc}>{t('setupModeInstructions')}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#64748b" />
+                  </TouchableOpacity>
 
-            <TextInput
-              style={styles.modalInput}
-              placeholder={t('ledCount')}
-              placeholderTextColor="#64748b"
-              value={deviceLEDCount}
-              onChangeText={setDeviceLEDCount}
-              keyboardType="number-pad"
-            />
-
-            <TouchableOpacity
-              style={[styles.modalButton, adding && styles.modalButtonDisabled]}
-              onPress={handleAddDevice}
-              disabled={adding}
-            >
-              {adding ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.modalButtonText}>{t('addDevice')}</Text>
+                  <TouchableOpacity 
+                    style={styles.methodButton}
+                    onPress={startManualMode}
+                  >
+                    <View style={[styles.methodIcon, { backgroundColor: '#064e3b' }]}>
+                      <Ionicons name="create" size={32} color="#10b981" />
+                    </View>
+                    <View style={styles.methodTextContainer}>
+                      <Text style={styles.methodButtonTitle}>{t('manualIP')}</Text>
+                      <Text style={styles.methodButtonDesc}>{t('ipAddress')}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
               )}
-            </TouchableOpacity>
+
+              {/* MODE SCAN - Discovered devices list */}
+              {addMode === 'scan' && (
+                <View style={styles.scanMode}>
+                  {scanning && (
+                    <View style={styles.scanningContainer}>
+                      <ActivityIndicator size="large" color="#6366f1" />
+                      <Text style={styles.scanningText}>{t('scanning')}</Text>
+                    </View>
+                  )}
+
+                  {!scanning && discoveredDevices.length === 0 && (
+                    <View style={styles.emptyStateContainer}>
+                      <Ionicons name="sad-outline" size={48} color="#64748b" />
+                      <Text style={styles.emptyStateText}>{t('noDevicesFound')}</Text>
+                      <TouchableOpacity 
+                        style={styles.retryButton}
+                        onPress={startMDNSScan}
+                      >
+                        <Text style={styles.retryButtonText}>{t('scanNetwork')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {discoveredDevices.map((device, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={styles.discoveredDevice}
+                      onPress={() => addDiscoveredDevice(device)}
+                      disabled={adding}
+                    >
+                      <Ionicons name="bulb" size={32} color="#10b981" />
+                      <View style={styles.discoveredDeviceInfo}>
+                        <Text style={styles.discoveredDeviceName}>{device.name}</Text>
+                        <Text style={styles.discoveredDeviceIP}>{device.ip}</Text>
+                      </View>
+                      <Ionicons name="add-circle" size={24} color="#6366f1" />
+                    </TouchableOpacity>
+                  ))}
+
+                  <TouchableOpacity 
+                    style={styles.backButton}
+                    onPress={() => setAddMode('select')}
+                  >
+                    <Ionicons name="arrow-back" size={20} color="#94a3b8" />
+                    <Text style={styles.backButtonText}>{t('cancel')}</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={styles.notFoundButton}
+                    onPress={startSetupMode}
+                  >
+                    <Text style={styles.notFoundButtonText}>{t('dontSeeDevice')}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* MODE SETUP - Wizard */}
+              {addMode === 'setup' && (
+                <View style={styles.setupMode}>
+                  {/* Step 1: Instructions */}
+                  {setupStep === 1 && (
+                    <View style={styles.setupStep}>
+                      <View style={styles.stepIndicator}>
+                        <Text style={styles.stepNumber}>1</Text>
+                      </View>
+                      <Text style={styles.setupStepTitle}>{t('step1')}</Text>
+                      <Text style={styles.setupStepDesc}>{t('step1Desc')}</Text>
+                      
+                      <View style={styles.wledAPBox}>
+                        <Ionicons name="wifi" size={24} color="#818cf8" />
+                        <Text style={styles.wledAPText}>{t('wledAPName')}</Text>
+                      </View>
+
+                      <Text style={styles.setupInstruction}>
+                        📱 {t('step1Desc')}
+                      </Text>
+
+                      <TouchableOpacity 
+                        style={styles.setupButton}
+                        onPress={() => setSetupStep(2)}
+                      >
+                        <Text style={styles.setupButtonText}>{t('connected')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Step 2: Check connection */}
+                  {setupStep === 2 && (
+                    <View style={styles.setupStep}>
+                      <View style={styles.stepIndicator}>
+                        <Text style={styles.stepNumber}>2</Text>
+                      </View>
+                      <Text style={styles.setupStepTitle}>{t('step2')}</Text>
+                      <Text style={styles.setupStepDesc}>{t('step2Desc')}</Text>
+
+                      <TouchableOpacity 
+                        style={[styles.setupButton, adding && styles.setupButtonDisabled]}
+                        onPress={checkAPConnection}
+                        disabled={adding}
+                      >
+                        {adding ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.setupButtonText}>{t('connected')}</Text>
+                        )}
+                      </TouchableOpacity>
+
+                      <TouchableOpacity 
+                        style={styles.backButton}
+                        onPress={() => setSetupStep(1)}
+                      >
+                        <Ionicons name="arrow-back" size={20} color="#94a3b8" />
+                        <Text style={styles.backButtonText}>{t('cancel')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Step 3: WiFi config */}
+                  {setupStep === 3 && (
+                    <View style={styles.setupStep}>
+                      <View style={styles.stepIndicator}>
+                        <Text style={styles.stepNumber}>3</Text>
+                      </View>
+                      <Text style={styles.setupStepTitle}>{t('step3')}</Text>
+                      <Text style={styles.setupStepDesc}>{t('step3Desc')}</Text>
+
+                      <TextInput
+                        style={styles.setupInput}
+                        placeholder={t('wifiSSID')}
+                        placeholderTextColor="#64748b"
+                        value={wifiSSID}
+                        onChangeText={setWifiSSID}
+                      />
+
+                      <TextInput
+                        style={styles.setupInput}
+                        placeholder={t('wifiPassword')}
+                        placeholderTextColor="#64748b"
+                        value={wifiPassword}
+                        onChangeText={setWifiPassword}
+                        secureTextEntry
+                      />
+
+                      <TouchableOpacity 
+                        style={[styles.setupButton, adding && styles.setupButtonDisabled]}
+                        onPress={sendWiFiConfig}
+                        disabled={adding}
+                      >
+                        {adding ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.setupButtonText}>{t('sendConfig')}</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Step 4: Waiting */}
+                  {setupStep === 4 && (
+                    <View style={styles.setupStep}>
+                      <View style={styles.stepIndicator}>
+                        <Text style={styles.stepNumber}>4</Text>
+                      </View>
+                      <Text style={styles.setupStepTitle}>{t('waitingForDevice')}</Text>
+                      
+                      <View style={styles.waitingContainer}>
+                        <ActivityIndicator size="large" color="#6366f1" />
+                        <Text style={styles.waitingText}>{setupProgress}</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* MODE MANUAL - Manual IP input */}
+              {addMode === 'manual' && (
+                <View style={styles.manualMode}>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder={t('deviceName')}
+                    placeholderTextColor="#64748b"
+                    value={deviceName}
+                    onChangeText={setDeviceName}
+                  />
+
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder={t('ipAddress')}
+                    placeholderTextColor="#64748b"
+                    value={deviceIP}
+                    onChangeText={setDeviceIP}
+                    keyboardType="numeric"
+                  />
+
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder={t('ledCount')}
+                    placeholderTextColor="#64748b"
+                    value={deviceLEDCount}
+                    onChangeText={setDeviceLEDCount}
+                    keyboardType="number-pad"
+                  />
+
+                  <TouchableOpacity
+                    style={[styles.modalButton, adding && styles.modalButtonDisabled]}
+                    onPress={handleAddDevice}
+                    disabled={adding}
+                  >
+                    {adding ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.modalButtonText}>{t('addDevice')}</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={styles.backButton}
+                    onPress={() => setAddMode('select')}
+                  >
+                    <Ionicons name="arrow-back" size={20} color="#94a3b8" />
+                    <Text style={styles.backButtonText}>{t('cancel')}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
