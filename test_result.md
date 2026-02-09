@@ -317,3 +317,5 @@ agent_communication:
     message: "CRITICAL FRONTEND ISSUE: App stuck on loading screen due to Expo CORS errors in containerized environment. Backend working fine. LANGUAGE BUG: Login/register screens use hardcoded English instead of Polish default. Main app screens properly use translation system."
   - agent: "testing"
     message: "MAJOR UPDATE: Previous reports were incorrect. App works perfectly on mobile using external preview URL. No CORS issues. Authentication screens correctly use Polish translation system. All main UI screens accessible and navigable. Frontend is mobile-responsive and properly implemented. Need backend integration testing to complete full flows."
+  - agent: "testing"
+    message: "BACKEND TESTING COMPLETE: All critical API endpoints tested and working perfectly. ✅ Auth (register/login/me), ✅ Device CRUD, ✅ Group management, ✅ Presets (10 items), ✅ Schedules (empty list OK). JWT authentication properly secured. Device control endpoints gracefully handle absence of real WLED devices. All expected behaviors confirmed - ready for production use."
