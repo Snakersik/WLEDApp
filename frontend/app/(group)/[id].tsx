@@ -13,11 +13,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import axios from 'axios';
 import Slider from '@react-native-community/slider';
-import { TriangleColorPicker } from 'react-native-color-picker';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + '/api';
+
+const PRESET_COLORS = [
+  { name: 'Red', color: '#FF0000', rgb: [255, 0, 0] },
+  { name: 'Green', color: '#00FF00', rgb: [0, 255, 0] },
+  { name: 'Blue', color: '#0000FF', rgb: [0, 0, 255] },
+  { name: 'Yellow', color: '#FFFF00', rgb: [255, 255, 0] },
+  { name: 'Purple', color: '#FF00FF', rgb: [255, 0, 255] },
+  { name: 'Cyan', color: '#00FFFF', rgb: [0, 255, 255] },
+  { name: 'Orange', color: '#FF8800', rgb: [255, 136, 0] },
+  { name: 'Pink', color: '#FF1493', rgb: [255, 20, 147] },
+  { name: 'White', color: '#FFFFFF', rgb: [255, 255, 255] },
+];
 
 interface Group {
   id: string;
@@ -35,6 +47,7 @@ interface Preset {
 export default function GroupControlScreen() {
   const { id } = useLocalSearchParams();
   const { token, user } = useAuth();
+  const { t } = useLanguage();
   const router = useRouter();
   
   const [group, setGroup] = useState<Group | null>(null);
@@ -44,7 +57,7 @@ export default function GroupControlScreen() {
   
   const [isOn, setIsOn] = useState(true);
   const [brightness, setBrightness] = useState(128);
-  const [selectedColor, setSelectedColor] = useState('#ff0000');
+  const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0]);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
 
   useEffect(() => {
@@ -122,24 +135,20 @@ export default function GroupControlScreen() {
     await controlGroup({ brightness: Math.round(brightness) });
   };
 
-  const handleColorChange = (color: string) => {
+  const handleColorSelect = async (color: typeof PRESET_COLORS[0]) => {
     setSelectedColor(color);
-  };
-
-  const handleColorComplete = async () => {
-    const rgb = hexToRgb(selectedColor);
-    await controlGroup({ color: rgb });
+    await controlGroup({ color: color.rgb });
   };
 
   const handlePresetSelect = async (presetId: string, isPremium: boolean) => {
     if (isPremium && !user?.has_subscription) {
       Alert.alert(
-        'Premium Required',
-        'This preset requires a premium subscription',
+        t('premiumRequired'),
+        t('presetRequiresPremium'),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('cancel'), style: 'cancel' },
           {
-            text: 'Upgrade',
+            text: t('upgrade'),
             onPress: () => router.push('/(tabs)/profile'),
           },
         ]
