@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -22,16 +23,17 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
+  const { t } = useLanguage();
   const router = useRouter();
 
   const handleRegister = async () => {
     if (!name || !email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert(t('error'), t('fillAllFields'));
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      Alert.alert(t('error'), t('passwordTooShort'));
       return;
     }
 
@@ -40,7 +42,7 @@ export default function RegisterScreen() {
       await register(email, password, name);
       router.replace('/(tabs)/devices');
     } catch (error: any) {
-      Alert.alert('Registration Failed', error.message);
+      Alert.alert(t('registrationFailed'), error.message);
     } finally {
       setLoading(false);
     }
@@ -55,8 +57,8 @@ export default function RegisterScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.header}>
             <Ionicons name="bulb" size={64} color="#818cf8" />
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Start managing your WLED devices</Text>
+            <Text style={styles.title}>{t('createAccount')}</Text>
+            <Text style={styles.subtitle}>{t('startManaging')}</Text>
           </View>
 
           <View style={styles.form}>
@@ -64,7 +66,7 @@ export default function RegisterScreen() {
               <Ionicons name="person-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Name"
+                placeholder={t('name')}
                 placeholderTextColor="#64748b"
                 value={name}
                 onChangeText={setName}
@@ -75,7 +77,7 @@ export default function RegisterScreen() {
               <Ionicons name="mail-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Email"
+                placeholder={t('email')}
                 placeholderTextColor="#64748b"
                 value={email}
                 onChangeText={setEmail}
@@ -88,7 +90,7 @@ export default function RegisterScreen() {
               <Ionicons name="lock-closed-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Password (min 6 characters)"
+                placeholder={t('passwordMin')}
                 placeholderTextColor="#64748b"
                 value={password}
                 onChangeText={setPassword}
@@ -104,14 +106,14 @@ export default function RegisterScreen() {
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.buttonText}>Create Account</Text>
+                <Text style={styles.buttonText}>{t('createAccount')}</Text>
               )}
             </TouchableOpacity>
 
             <View style={styles.footer}>
-              <Text style={styles.footerText}>Already have an account? </Text>
+              <Text style={styles.footerText}>{t('alreadyHaveAccount')} </Text>
               <TouchableOpacity onPress={() => router.back()}>
-                <Text style={styles.linkText}>Sign In</Text>
+                <Text style={styles.linkText}>{t('signIn')}</Text>
               </TouchableOpacity>
             </View>
           </View>
