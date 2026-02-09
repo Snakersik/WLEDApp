@@ -276,13 +276,16 @@ metadata:
 
 test_plan:
   current_focus:
-    - "User Authentication (JWT)"
-    - "Device Management CRUD"
-    - "Group Management"
-    - "Subscription Management"
-  stuck_tasks: []
-  test_all: true
-  test_priority: "high_first"
+    - "Expo CORS Containerization Issue"
+    - "Authentication Screens Language Bug"
+    - "Frontend Language Consistency"
+  stuck_tasks:
+    - "Device Management UI" 
+    - "Group Management UI"
+    - "Presets Library UI"
+    - "Authentication Screens"
+  test_all: false
+  test_priority: "stuck_first"
 
 agent_communication:
   - agent: "main"
