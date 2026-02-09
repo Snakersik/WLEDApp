@@ -811,8 +811,9 @@ def main():
     test_update_group()
     test_control_group()
     
-    # Preset Tests
+    # Preset & Schedule Tests
     test_get_presets()
+    test_get_schedules()
     
     # Authorization Tests
     test_unauthorized_access()
