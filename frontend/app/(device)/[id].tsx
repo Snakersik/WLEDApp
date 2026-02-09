@@ -16,6 +16,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useLanguage } from '../../src/context/LanguageContext';
 import axios from 'axios';
 import Slider from '@react-native-community/slider';
+import { WLEDService } from '../../src/services/wledService';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + '/api';
 
@@ -64,7 +65,19 @@ export default function DeviceControlScreen() {
 
   useEffect(() => {
     fetchData();
+    // Check device online status periodically
+    const interval = setInterval(checkDeviceStatus, 5000);
+    return () => clearInterval(interval);
   }, []);
+
+  const checkDeviceStatus = async () => {
+    if (device) {
+      const isOnline = await WLEDService.isOnline(device.ip_address);
+      if (isOnline !== device.is_online) {
+        setDevice({ ...device, is_online: isOnline });
+      }
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -74,7 +87,13 @@ export default function DeviceControlScreen() {
         }),
         axios.get(`${API_URL}/presets`),
       ]);
-      setDevice(deviceRes.data);
+      
+      const deviceData = deviceRes.data;
+      // Check if device is actually online
+      const isOnline = await WLEDService.isOnline(deviceData.ip_address);
+      deviceData.is_online = isOnline;
+      
+      setDevice(deviceData);
       setPresets(presetsRes.data);
     } catch (error: any) {
       console.error('Failed to fetch data:', error);
@@ -85,7 +104,7 @@ export default function DeviceControlScreen() {
     }
   };
 
-  const controlDevice = async (params: any) => {
+  const controlDevice = async (action: () => Promise<any>) => {
     if (!device?.is_online) {
       Alert.alert(t('deviceOffline'), t('deviceNotReachable'));
       return;
@@ -93,14 +112,12 @@ export default function DeviceControlScreen() {
 
     setControlling(true);
     try {
-      await axios.post(
-        `${API_URL}/devices/${id}/control`,
-        params,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const result = await action();
+      if (!result.success) {
+        Alert.alert(t('error'), result.error || t('failedToControl'));
+      }
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || t('failedToControl');
-      Alert.alert(t('error'), errorMsg);
+      Alert.alert(t('error'), t('failedToControl'));
     } finally {
       setControlling(false);
     }
@@ -108,7 +125,7 @@ export default function DeviceControlScreen() {
 
   const handleTogglePower = async (value: boolean) => {
     setIsOn(value);
-    await controlDevice({ on: value });
+    await controlDevice(() => WLEDService.setPower(device!.ip_address, value));
   };
 
   const handleBrightnessChange = async (value: number) => {
@@ -116,16 +133,16 @@ export default function DeviceControlScreen() {
   };
 
   const handleBrightnessComplete = async () => {
-    await controlDevice({ brightness: Math.round(brightness) });
+    await controlDevice(() => WLEDService.setBrightness(device!.ip_address, Math.round(brightness)));
   };
 
   const handleColorSelect = async (color: typeof PRESET_COLORS[0]) => {
     setSelectedColor(color);
-    await controlDevice({ color: color.rgb });
+    await controlDevice(() => WLEDService.setColor(device!.ip_address, color.rgb));
   };
 
-  const handlePresetSelect = async (presetId: string, isPremium: boolean) => {
-    if (isPremium && !user?.has_subscription) {
+  const handlePresetSelect = async (preset: Preset) => {
+    if (preset.is_premium && !user?.has_subscription) {
       Alert.alert(
         t('premiumRequired'),
         t('presetRequiresPremium'),
@@ -140,8 +157,21 @@ export default function DeviceControlScreen() {
       return;
     }
 
-    setSelectedPreset(presetId);
-    await controlDevice({ preset_id: presetId });
+    setSelectedPreset(preset.id);
+    
+    // Get preset details from backend to get effect parameters
+    const presetData = presets.find(p => p.id === preset.id);
+    if (presetData && device) {
+      await controlDevice(() => 
+        WLEDService.applyPreset(
+          device.ip_address,
+          (presetData as any).effect_id,
+          (presetData as any).speed || 128,
+          (presetData as any).intensity || 128,
+          (presetData as any).palette || 0
+        )
+      );
+    }
   };
 
   if (loading) {
@@ -245,7 +275,7 @@ export default function DeviceControlScreen() {
                     isSelected && styles.presetCardSelected,
                     isLocked && styles.presetCardLocked,
                   ]}
-                  onPress={() => handlePresetSelect(preset.id, preset.is_premium)}
+                  onPress={() => handlePresetSelect(preset)}
                   disabled={controlling || !device?.is_online}
                 >
                   {isLocked && (
