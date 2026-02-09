@@ -19,15 +19,6 @@ import Slider from '@react-native-community/slider';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + '/api';
 
-}
-
-interface Preset {
-  id: string;
-  name: string;
-  description: string;
-  is_premium: boolean;
-}
-
 const PRESET_COLORS = [
   { name: 'Red', color: '#FF0000', rgb: [255, 0, 0] },
   { name: 'Green', color: '#00FF00', rgb: [0, 255, 0] },
@@ -40,13 +31,26 @@ const PRESET_COLORS = [
   { name: 'White', color: '#FFFFFF', rgb: [255, 255, 255] },
 ];
 
+interface Group {
+  id: string;
+  name: string;
+  device_ids: string[];
+}
+
+interface Preset {
+  id: string;
+  name: string;
+  description: string;
+  is_premium: boolean;
+}
+
 export default function GroupControlScreen() {
   const { id } = useLocalSearchParams();
   const { token, user } = useAuth();
   const { t } = useLanguage();
   const router = useRouter();
   
-  const [device, setGroup] = useState<Group | null>(null);
+  const [group, setGroup] = useState<Group | null>(null);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [loading, setLoading] = useState(true);
   const [controlling, setControlling] = useState(false);
@@ -62,13 +66,17 @@ export default function GroupControlScreen() {
 
   const fetchData = async () => {
     try {
-      const [deviceRes, presetsRes] = await Promise.all([
-        axios.get(`${API_URL}/devices/${id}`, {
+      const [groupsRes, presetsRes] = await Promise.all([
+        axios.get(`${API_URL}/groups`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         axios.get(`${API_URL}/presets`),
       ]);
-      setGroup(deviceRes.data);
+      const foundGroup = groupsRes.data.find((g: Group) => g.id === id);
+      if (!foundGroup) {
+        throw new Error('Group not found');
+      }
+      setGroup(foundGroup);
       setPresets(presetsRes.data);
     } catch (error: any) {
       console.error('Failed to fetch data:', error);
@@ -80,18 +88,21 @@ export default function GroupControlScreen() {
   };
 
   const controlGroup = async (params: any) => {
-    if (!device?.is_online) {
-      Alert.alert(t('deviceOffline'), t('deviceNotReachable'));
-      return;
-    }
-
     setControlling(true);
     try {
-      await axios.post(
-        `${API_URL}/devices/${id}/control`,
+      const response = await axios.post(
+        `${API_URL}/groups/${id}/control`,
         params,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      
+      const failedDevices = response.data.results.filter((r: any) => !r.success);
+      if (failedDevices.length > 0) {
+        Alert.alert(
+          t('partialSuccess'),
+          `${failedDevices.length} ${t('devicesFailed')}`
+        );
+      }
     } catch (error: any) {
       const errorMsg = error.response?.data?.detail || t('failedToControl');
       Alert.alert(t('error'), errorMsg);
@@ -153,19 +164,13 @@ export default function GroupControlScreen() {
           <Ionicons name="arrow-back" size={24} color="#f1f5f9" />
         </TouchableOpacity>
         <View style={styles.headerInfo}>
-          <Text style={styles.title}>{device?.name}</Text>
-          <View style={styles.statusRow}>
-            <View style={[styles.statusDot, device?.is_online ? styles.statusOnline : styles.statusOffline]} />
-            <Text style={styles.statusText}>
-              {device?.is_online ? t('online') : t('offline')}
-            </Text>
-          </View>
+          <Text style={styles.title}>{group?.name}</Text>
+          <Text style={styles.deviceCount}>{group?.device_ids.length} {t('devices')}</Text>
         </View>
         <View style={styles.placeholder} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Power Control */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{t('power')}</Text>
@@ -174,12 +179,11 @@ export default function GroupControlScreen() {
               onValueChange={handleTogglePower}
               trackColor={{ false: '#334155', true: '#818cf8' }}
               thumbColor={isOn ? '#6366f1' : '#94a3b8'}
-              disabled={controlling || !device?.is_online}
+              disabled={controlling}
             />
           </View>
         </View>
 
-        {/* Brightness Control */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('brightness')}</Text>
           <View style={styles.sliderContainer}>
@@ -194,13 +198,12 @@ export default function GroupControlScreen() {
               minimumTrackTintColor="#6366f1"
               maximumTrackTintColor="#334155"
               thumbTintColor="#6366f1"
-              disabled={controlling || !device?.is_online}
+              disabled={controlling}
             />
             <Text style={styles.brightnessValue}>{Math.round(brightness)}</Text>
           </View>
         </View>
 
-        {/* Color Picker */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('color')}</Text>
           <View style={styles.colorGrid}>
@@ -213,7 +216,7 @@ export default function GroupControlScreen() {
                   selectedColor.name === color.name && styles.colorButtonSelected
                 ]}
                 onPress={() => handleColorSelect(color)}
-                disabled={controlling || !device?.is_online}
+                disabled={controlling}
               >
                 {selectedColor.name === color.name && (
                   <Ionicons name="checkmark" size={24} color="#000" />
@@ -223,7 +226,6 @@ export default function GroupControlScreen() {
           </View>
         </View>
 
-        {/* Presets */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('presets')}</Text>
           <View style={styles.presetsGrid}>
@@ -240,7 +242,7 @@ export default function GroupControlScreen() {
                     isLocked && styles.presetCardLocked,
                   ]}
                   onPress={() => handlePresetSelect(preset.id, preset.is_premium)}
-                  disabled={controlling || !device?.is_online}
+                  disabled={controlling}
                 >
                   {isLocked && (
                     <View style={styles.lockBadge}>
@@ -305,23 +307,7 @@ const styles = StyleSheet.create({
     color: '#f1f5f9',
     marginBottom: 4,
   },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  statusOnline: {
-    backgroundColor: '#10b981',
-  },
-  statusOffline: {
-    backgroundColor: '#6b7280',
-  },
-  statusText: {
+  deviceCount: {
     fontSize: 12,
     color: '#94a3b8',
   },
