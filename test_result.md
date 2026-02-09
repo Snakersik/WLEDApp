@@ -210,11 +210,11 @@ frontend:
   
   - task: "Device Management UI"
     implemented: true
-    working: true
+    working: false
     file: "app/(tabs)/devices.tsx"
-    stuck_count: 1
+    stuck_count: 2
     priority: "high"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
       - working: "NA"
         agent: "main"
@@ -225,6 +225,9 @@ frontend:
       - working: true
         agent: "testing"
         comment: "FIXED: App loads properly on mobile using external preview URL. No CORS issues. UI is mobile-responsive. Device management screen accessible with proper Polish translation. Add device modal opens with 3 discovery modes (Scan, Setup, Manual). Previous CORS issue resolved with external URL."
+      - working: false
+        agent: "testing"
+        comment: "CRITICAL BUG CONFIRMED: User reported 'dodawanie urządzenia wywala masę błędów' (device addition throws massive errors). Testing shows authentication/session persistence issues - app frequently reverts to login screen even after successful login. Cannot consistently reach devices screen to test device addition modal (3 attempts failed). Authentication flow appears unstable, preventing proper testing of device addition functionality which is user's main complaint."
   
   - task: "Device Control Screen"
     implemented: true
