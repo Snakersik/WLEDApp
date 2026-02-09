@@ -156,6 +156,166 @@ export default function DevicesScreen() {
     );
   };
 
+  // ============ AUTO-DISCOVERY FUNCTIONS ============
+
+  const resetModal = () => {
+    setAddMode('select');
+    setScanning(false);
+    setDiscoveredDevices([]);
+    setDeviceName('');
+    setDeviceIP('');
+    setDeviceLEDCount('119');
+    setSetupStep(1);
+    setWifiSSID('');
+    setWifiPassword('');
+    setSetupProgress('');
+    WLEDDiscovery.stopMDNSScan();
+  };
+
+  const openAddModal = () => {
+    resetModal();
+    setModalVisible(true);
+  };
+
+  const closeModal = () => {
+    resetModal();
+    setModalVisible(false);
+  };
+
+  // mDNS Network Scan
+  const startMDNSScan = () => {
+    setAddMode('scan');
+    setScanning(true);
+    setDiscoveredDevices([]);
+    
+    WLEDDiscovery.startMDNSScan(
+      (device) => {
+        console.log('Device found:', device);
+        setDiscoveredDevices(prev => {
+          // Avoid duplicates
+          if (prev.find(d => d.ip === device.ip)) return prev;
+          return [...prev, device];
+        });
+      },
+      () => {
+        console.log('Scan completed');
+        setScanning(false);
+      }
+    );
+  };
+
+  const addDiscoveredDevice = async (device: DiscoveredDevice) => {
+    setAdding(true);
+    try {
+      const response = await axios.post(
+        `${API_URL}/devices`,
+        {
+          name: device.name,
+          ip_address: device.ip,
+          led_count: 119,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      const isOnline = await WLEDService.isOnline(device.ip);
+      const newDevice = { ...response.data, is_online: isOnline };
+      
+      setDevices([...devices, newDevice]);
+      closeModal();
+      Alert.alert(t('success'), t('deviceAdded'));
+    } catch (error: any) {
+      Alert.alert(t('error'), error.response?.data?.detail || t('failedToLoad'));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  // Setup Mode (WLED-AP)
+  const startSetupMode = () => {
+    setAddMode('setup');
+    setSetupStep(1);
+  };
+
+  const checkAPConnection = async () => {
+    setAdding(true);
+    const result = await WLEDDiscovery.checkAPConnection();
+    setAdding(false);
+    
+    if (result.success) {
+      setSetupStep(3);
+    } else {
+      Alert.alert(t('notConnectedToAP'), t('checkConnection'));
+    }
+  };
+
+  const sendWiFiConfig = async () => {
+    if (!wifiSSID) {
+      Alert.alert(t('error'), t('fillAllFields'));
+      return;
+    }
+
+    setAdding(true);
+    setSetupProgress(t('configuring'));
+    
+    // Try primary method
+    let result = await WLEDDiscovery.sendWiFiConfig(wifiSSID, wifiPassword);
+    
+    // If failed, try alternative
+    if (!result.success) {
+      result = await WLEDDiscovery.sendWiFiConfigAlt(wifiSSID, wifiPassword);
+    }
+    
+    if (result.success) {
+      setSetupStep(4);
+      await WLEDDiscovery.waitAndRescan(
+        (msg) => setSetupProgress(msg),
+        (device) => {
+          setSetupProgress('');
+          addDiscoveredDevice(device);
+        }
+      );
+    } else {
+      setAdding(false);
+      Alert.alert(t('configFailed'), result.error);
+    }
+  };
+
+  // Manual Mode
+  const startManualMode = () => {
+    setAddMode('manual');
+  };
+
+  const handleAddDevice = async () => {
+    if (!deviceName || !deviceIP) {
+      Alert.alert(t('error'), t('fillAllFields'));
+      return;
+    }
+
+    setAdding(true);
+    try {
+      const response = await axios.post(
+        `${API_URL}/devices`,
+        {
+          name: deviceName,
+          ip_address: deviceIP,
+          led_count: parseInt(deviceLEDCount) || 119,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      const isOnline = await WLEDService.isOnline(deviceIP);
+      const newDevice = { ...response.data, is_online: isOnline };
+      
+      setDevices([...devices, newDevice]);
+      closeModal();
+      Alert.alert(t('success'), t('deviceAdded'));
+    } catch (error: any) {
+      Alert.alert(t('error'), error.response?.data?.detail || t('failedToLoad'));
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const renderDevice = ({ item }: { item: Device }) => (
     <TouchableOpacity
       style={styles.deviceCard}
@@ -190,7 +350,7 @@ export default function DevicesScreen() {
         <Text style={styles.title}>{t('myDevices')}</Text>
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => setModalVisible(true)}
+          onPress={openAddModal}
         >
           <Ionicons name="add" size={24} color="#fff" />
         </TouchableOpacity>
