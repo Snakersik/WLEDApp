@@ -176,15 +176,18 @@ backend:
   
   - task: "Subscription Management"
     implemented: true
-    working: "NA"
+    working: true
     file: "backend/server.py"
     stuck_count: 0
     priority: "medium"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Mock subscription upgrade endpoint implemented. Not yet tested."
+      - working: true
+        agent: "testing"
+        comment: "TESTED: Subscription upgrade endpoint working correctly. POST /auth/upgrade-subscription activates premium features, enabling access to premium presets."
 
 frontend:
   - task: "Authentication Screens"
