@@ -620,6 +620,38 @@ def test_get_presets():
         log_test("Presets Listing", False, f"HTTP {response.status_code}", response.text)
         return False
 
+# ============ SCHEDULE TESTS ============
+
+def test_get_schedules():
+    """Test schedules listing endpoint"""
+    print("\n--- Testing Schedules Listing ---")
+    
+    if not auth_token:
+        log_test("Schedules Listing", False, "No auth token available")
+        return False
+    
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    response = make_request("GET", f"{BACKEND_URL}/schedules", headers=headers)
+    
+    if response is None:
+        return False
+    
+    if response.status_code == 200:
+        try:
+            data = response.json()
+            if isinstance(data, list):
+                log_test("Schedules Listing", True, f"Retrieved {len(data)} schedules (empty list OK)")
+                return True
+            else:
+                log_test("Schedules Listing", False, "Response is not a list", data)
+                return False
+        except json.JSONDecodeError:
+            log_test("Schedules Listing", False, "Invalid JSON response", response.text)
+            return False
+    else:
+        log_test("Schedules Listing", False, f"HTTP {response.status_code}", response.text)
+        return False
+
 # ============ AUTHORIZATION TESTS ============
 
 def test_unauthorized_access():
