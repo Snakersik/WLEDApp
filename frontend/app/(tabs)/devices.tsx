@@ -786,6 +786,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
+    maxHeight: '90%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -797,6 +798,214 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#f1f5f9',
+  },
+  modalScroll: {
+    maxHeight: 500,
+  },
+  
+  // Method Selector Styles
+  methodSelector: {
+    gap: 16,
+  },
+  methodButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  methodIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#312e81',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  methodTextContainer: {
+    flex: 1,
+  },
+  methodButtonTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#f1f5f9',
+    marginBottom: 4,
+  },
+  methodButtonDesc: {
+    fontSize: 12,
+    color: '#94a3b8',
+  },
+  
+  // Scan Mode Styles
+  scanMode: {
+    minHeight: 300,
+  },
+  scanningContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  scanningText: {
+    fontSize: 16,
+    color: '#94a3b8',
+    marginTop: 16,
+  },
+  emptyStateContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: '#94a3b8',
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#6366f1',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  discoveredDevice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  discoveredDeviceInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  discoveredDeviceName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#f1f5f9',
+    marginBottom: 4,
+  },
+  discoveredDeviceIP: {
+    fontSize: 14,
+    color: '#94a3b8',
+  },
+  notFoundButton: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    marginTop: 8,
+  },
+  notFoundButtonText: {
+    fontSize: 14,
+    color: '#818cf8',
+    fontWeight: '600',
+  },
+  
+  // Setup Mode Styles
+  setupMode: {
+    minHeight: 350,
+  },
+  setupStep: {
+    paddingVertical: 20,
+  },
+  stepIndicator: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#6366f1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    alignSelf: 'center',
+  },
+  stepNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  setupStepTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#f1f5f9',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  setupStepDesc: {
+    fontSize: 14,
+    color: '#94a3b8',
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  wledAPBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#312e81',
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 16,
+    borderWidth: 2,
+    borderColor: '#818cf8',
+  },
+  wledAPText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#818cf8',
+    marginLeft: 12,
+  },
+  setupInstruction: {
+    fontSize: 14,
+    color: '#94a3b8',
+    marginVertical: 16,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  setupInput: {
+    backgroundColor: '#0f172a',
+    borderRadius: 12,
+    padding: 16,
+    color: '#f1f5f9',
+    fontSize: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  setupButton: {
+    backgroundColor: '#6366f1',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  setupButtonDisabled: {
+    opacity: 0.6,
+  },
+  setupButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  waitingContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  waitingText: {
+    fontSize: 14,
+    color: '#94a3b8',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  
+  // Manual Mode Styles
+  manualMode: {
+    paddingVertical: 20,
   },
   modalInput: {
     backgroundColor: '#0f172a',
@@ -822,5 +1031,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  
+  // Common Styles
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    marginTop: 16,
+  },
+  backButtonText: {
+    fontSize: 14,
+    color: '#94a3b8',
+    marginLeft: 8,
   },
 });
