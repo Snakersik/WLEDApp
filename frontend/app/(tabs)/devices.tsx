@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -147,6 +148,16 @@ export default function DevicesScreen() {
 
   // mDNS Network Scan
   const startMDNSScan = () => {
+    // Check if running on native platform
+    if (Platform.OS === 'web') {
+      Alert.alert(
+        t('error'),
+        'Skanowanie sieci wymaga natywnej aplikacji. Użyj Expo Go na telefonie lub wybierz tryb ręczny.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
     setAddMode('scan');
     setScanning(true);
     setDiscoveredDevices([]);
@@ -362,19 +373,33 @@ export default function DevicesScreen() {
               {/* MODE SELECT - Choose method */}
               {addMode === 'select' && (
                 <View style={styles.methodSelector}>
-                  <TouchableOpacity 
-                    style={styles.methodButton}
-                    onPress={startMDNSScan}
-                  >
-                    <View style={styles.methodIcon}>
-                      <Ionicons name="search" size={32} color="#818cf8" />
+                  {/* mDNS Scan - tylko native */}
+                  {Platform.OS !== 'web' && (
+                    <TouchableOpacity 
+                      style={styles.methodButton}
+                      onPress={startMDNSScan}
+                    >
+                      <View style={styles.methodIcon}>
+                        <Ionicons name="search" size={32} color="#818cf8" />
+                      </View>
+                      <View style={styles.methodTextContainer}>
+                        <Text style={styles.methodButtonTitle}>{t('scanNetwork')}</Text>
+                        <Text style={styles.methodButtonDesc}>{t('scanningNetwork')}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#64748b" />
+                    </TouchableOpacity>
+                  )}
+                  
+                  {/* Web info - tylko na web */}
+                  {Platform.OS === 'web' && (
+                    <View style={styles.webInfoBox}>
+                      <Ionicons name="information-circle" size={24} color="#818cf8" />
+                      <Text style={styles.webInfoText}>
+                        Skanowanie sieci dostępne tylko w natywnej aplikacji (Expo Go). 
+                        W przeglądarce użyj trybu ręcznego.
+                      </Text>
                     </View>
-                    <View style={styles.methodTextContainer}>
-                      <Text style={styles.methodButtonTitle}>{t('scanNetwork')}</Text>
-                      <Text style={styles.methodButtonDesc}>{t('scanningNetwork')}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color="#64748b" />
-                  </TouchableOpacity>
+                  )}
 
                   <TouchableOpacity 
                     style={styles.methodButton}
