@@ -269,3 +269,5 @@ test_plan:
 agent_communication:
   - agent: "main"
     message: "Initial WLED manager app implementation complete. Backend endpoints ready for testing. All core features implemented: auth, device management, groups, presets, subscription. Need to test all backend endpoints."
+  - agent: "testing"
+    message: "CRITICAL FRONTEND ISSUE: App stuck on loading screen due to Expo CORS errors in containerized environment. Backend working fine. LANGUAGE BUG: Login/register screens use hardcoded English instead of Polish default. Main app screens properly use translation system."
