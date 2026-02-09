@@ -106,6 +106,33 @@ class Preset(BaseModel):
     is_premium: bool = False
     description: str
 
+class Schedule(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    target_type: str  # "device" or "group"
+    target_id: str
+    days: List[int]  # 0-6 (0=Sunday, 6=Saturday)
+    start_time: str  # "HH:MM"
+    end_time: Optional[str] = None  # "HH:MM" or None
+    start_action: Dict[str, Any]  # {on: bool, brightness: int, color: [r,g,b], preset_id: str}
+    end_action: str  # "turn_off", "do_nothing"
+    enabled: bool = True
+    last_triggered_start: Optional[datetime] = None
+    last_triggered_end: Optional[datetime] = None
+    created_at: datetime
+
+class ScheduleCreate(BaseModel):
+    name: str
+    target_type: str  # "device" or "group"
+    target_id: str
+    days: List[int]  # 0-6
+    start_time: str  # "HH:MM"
+    end_time: Optional[str] = None
+    start_action: Dict[str, Any]
+    end_action: str = "do_nothing"
+    enabled: bool = True
+
 
 # ============ PRE-PROGRAMMED PRESETS ============
 PRESETS = [
@@ -645,6 +672,204 @@ async def control_group(
 @api_router.get("/presets", response_model=List[Preset])
 async def get_presets():
     return [Preset(**preset) for preset in PRESETS]
+
+
+# ============ SCHEDULE ROUTES ============
+
+@api_router.post("/schedules", response_model=Schedule)
+async def create_schedule(schedule_data: ScheduleCreate, current_user: dict = Depends(get_current_user)):
+    # Validate target exists
+    if schedule_data.target_type == "device":
+        device = await db.devices.find_one({
+            "_id": ObjectId(schedule_data.target_id),
+            "user_id": str(current_user["_id"])
+        })
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+    elif schedule_data.target_type == "group":
+        group = await db.groups.find_one({
+            "_id": ObjectId(schedule_data.target_id),
+            "user_id": str(current_user["_id"])
+        })
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+    
+    # Check if device/group already has active schedule
+    existing = await db.schedules.find_one({
+        "user_id": str(current_user["_id"]),
+        "target_type": schedule_data.target_type,
+        "target_id": schedule_data.target_id,
+        "enabled": True
+    })
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This {schedule_data.target_type} already has an active schedule. Disable it first."
+        )
+    
+    schedule_doc = {
+        "user_id": str(current_user["_id"]),
+        "name": schedule_data.name,
+        "target_type": schedule_data.target_type,
+        "target_id": schedule_data.target_id,
+        "days": schedule_data.days,
+        "start_time": schedule_data.start_time,
+        "end_time": schedule_data.end_time,
+        "start_action": schedule_data.start_action,
+        "end_action": schedule_data.end_action,
+        "enabled": schedule_data.enabled,
+        "last_triggered_start": None,
+        "last_triggered_end": None,
+        "created_at": datetime.utcnow()
+    }
+    
+    result = await db.schedules.insert_one(schedule_doc)
+    schedule_doc["_id"] = result.inserted_id
+    
+    return Schedule(
+        id=str(result.inserted_id),
+        user_id=schedule_doc["user_id"],
+        name=schedule_doc["name"],
+        target_type=schedule_doc["target_type"],
+        target_id=schedule_doc["target_id"],
+        days=schedule_doc["days"],
+        start_time=schedule_doc["start_time"],
+        end_time=schedule_doc["end_time"],
+        start_action=schedule_doc["start_action"],
+        end_action=schedule_doc["end_action"],
+        enabled=schedule_doc["enabled"],
+        last_triggered_start=schedule_doc["last_triggered_start"],
+        last_triggered_end=schedule_doc["last_triggered_end"],
+        created_at=schedule_doc["created_at"]
+    )
+
+@api_router.get("/schedules", response_model=List[Schedule])
+async def get_schedules(current_user: dict = Depends(get_current_user)):
+    schedules = await db.schedules.find({"user_id": str(current_user["_id"])}).to_list(1000)
+    return [
+        Schedule(
+            id=str(schedule["_id"]),
+            user_id=schedule["user_id"],
+            name=schedule["name"],
+            target_type=schedule["target_type"],
+            target_id=schedule["target_id"],
+            days=schedule["days"],
+            start_time=schedule["start_time"],
+            end_time=schedule.get("end_time"),
+            start_action=schedule["start_action"],
+            end_action=schedule["end_action"],
+            enabled=schedule["enabled"],
+            last_triggered_start=schedule.get("last_triggered_start"),
+            last_triggered_end=schedule.get("last_triggered_end"),
+            created_at=schedule["created_at"]
+        )
+        for schedule in schedules
+    ]
+
+@api_router.put("/schedules/{schedule_id}", response_model=Schedule)
+async def update_schedule(
+    schedule_id: str,
+    schedule_data: ScheduleCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    # Check if enabling and target already has another active schedule
+    if schedule_data.enabled:
+        existing = await db.schedules.find_one({
+            "_id": {"$ne": ObjectId(schedule_id)},
+            "user_id": str(current_user["_id"]),
+            "target_type": schedule_data.target_type,
+            "target_id": schedule_data.target_id,
+            "enabled": True
+        })
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"This {schedule_data.target_type} already has another active schedule. Disable it first."
+            )
+    
+    result = await db.schedules.update_one(
+        {"_id": ObjectId(schedule_id), "user_id": str(current_user["_id"])},
+        {"$set": {
+            "name": schedule_data.name,
+            "target_type": schedule_data.target_type,
+            "target_id": schedule_data.target_id,
+            "days": schedule_data.days,
+            "start_time": schedule_data.start_time,
+            "end_time": schedule_data.end_time,
+            "start_action": schedule_data.start_action,
+            "end_action": schedule_data.end_action,
+            "enabled": schedule_data.enabled
+        }}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    schedule = await db.schedules.find_one({"_id": ObjectId(schedule_id)})
+    
+    return Schedule(
+        id=str(schedule["_id"]),
+        user_id=schedule["user_id"],
+        name=schedule["name"],
+        target_type=schedule["target_type"],
+        target_id=schedule["target_id"],
+        days=schedule["days"],
+        start_time=schedule["start_time"],
+        end_time=schedule.get("end_time"),
+        start_action=schedule["start_action"],
+        end_action=schedule["end_action"],
+        enabled=schedule["enabled"],
+        last_triggered_start=schedule.get("last_triggered_start"),
+        last_triggered_end=schedule.get("last_triggered_end"),
+        created_at=schedule["created_at"]
+    )
+
+@api_router.delete("/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.schedules.delete_one({
+        "_id": ObjectId(schedule_id),
+        "user_id": str(current_user["_id"])
+    })
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    return {"message": "Schedule deleted successfully"}
+
+@api_router.post("/schedules/{schedule_id}/toggle")
+async def toggle_schedule(schedule_id: str, current_user: dict = Depends(get_current_user)):
+    schedule = await db.schedules.find_one({
+        "_id": ObjectId(schedule_id),
+        "user_id": str(current_user["_id"])
+    })
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    new_enabled = not schedule["enabled"]
+    
+    # If enabling, check if target already has another active schedule
+    if new_enabled:
+        existing = await db.schedules.find_one({
+            "_id": {"$ne": ObjectId(schedule_id)},
+            "user_id": str(current_user["_id"]),
+            "target_type": schedule["target_type"],
+            "target_id": schedule["target_id"],
+            "enabled": True
+        })
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"This {schedule['target_type']} already has another active schedule"
+            )
+    
+    await db.schedules.update_one(
+        {"_id": ObjectId(schedule_id)},
+        {"$set": {"enabled": new_enabled}}
+    )
+    
+    return {"enabled": new_enabled}
+
+
+# ============ PRESET ROUTES (kept at end) ============
 
 
 # Include router
