@@ -13,9 +13,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import axios from 'axios';
 import Slider from '@react-native-community/slider';
-import { TriangleColorPicker } from 'react-native-color-picker';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + '/api';
 
@@ -34,9 +34,22 @@ interface Preset {
   is_premium: boolean;
 }
 
+const PRESET_COLORS = [
+  { name: 'Red', color: '#FF0000', rgb: [255, 0, 0] },
+  { name: 'Green', color: '#00FF00', rgb: [0, 255, 0] },
+  { name: 'Blue', color: '#0000FF', rgb: [0, 0, 255] },
+  { name: 'Yellow', color: '#FFFF00', rgb: [255, 255, 0] },
+  { name: 'Purple', color: '#FF00FF', rgb: [255, 0, 255] },
+  { name: 'Cyan', color: '#00FFFF', rgb: [0, 255, 255] },
+  { name: 'Orange', color: '#FF8800', rgb: [255, 136, 0] },
+  { name: 'Pink', color: '#FF1493', rgb: [255, 20, 147] },
+  { name: 'White', color: '#FFFFFF', rgb: [255, 255, 255] },
+];
+
 export default function DeviceControlScreen() {
   const { id } = useLocalSearchParams();
   const { token, user } = useAuth();
+  const { t } = useLanguage();
   const router = useRouter();
   
   const [device, setDevice] = useState<Device | null>(null);
@@ -46,7 +59,7 @@ export default function DeviceControlScreen() {
   
   const [isOn, setIsOn] = useState(true);
   const [brightness, setBrightness] = useState(128);
-  const [selectedColor, setSelectedColor] = useState('#ff0000');
+  const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0]);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,27 +78,16 @@ export default function DeviceControlScreen() {
       setPresets(presetsRes.data);
     } catch (error: any) {
       console.error('Failed to fetch data:', error);
-      Alert.alert('Error', 'Failed to load device');
+      Alert.alert(t('error'), t('failedToLoad'));
       router.back();
     } finally {
       setLoading(false);
     }
   };
 
-  const hexToRgb = (hex: string) => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result
-      ? [
-          parseInt(result[1], 16),
-          parseInt(result[2], 16),
-          parseInt(result[3], 16),
-        ]
-      : [255, 0, 0];
-  };
-
   const controlDevice = async (params: any) => {
     if (!device?.is_online) {
-      Alert.alert('Device Offline', 'This device is not reachable');
+      Alert.alert(t('deviceOffline'), t('deviceNotReachable'));
       return;
     }
 
@@ -97,8 +99,8 @@ export default function DeviceControlScreen() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || 'Failed to control device';
-      Alert.alert('Error', errorMsg);
+      const errorMsg = error.response?.data?.detail || t('failedToControl');
+      Alert.alert(t('error'), errorMsg);
     } finally {
       setControlling(false);
     }
@@ -117,24 +119,20 @@ export default function DeviceControlScreen() {
     await controlDevice({ brightness: Math.round(brightness) });
   };
 
-  const handleColorChange = (color: string) => {
+  const handleColorSelect = async (color: typeof PRESET_COLORS[0]) => {
     setSelectedColor(color);
-  };
-
-  const handleColorComplete = async () => {
-    const rgb = hexToRgb(selectedColor);
-    await controlDevice({ color: rgb });
+    await controlDevice({ color: color.rgb });
   };
 
   const handlePresetSelect = async (presetId: string, isPremium: boolean) => {
     if (isPremium && !user?.has_subscription) {
       Alert.alert(
-        'Premium Required',
-        'This preset requires a premium subscription',
+        t('premiumRequired'),
+        t('presetRequiresPremium'),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('cancel'), style: 'cancel' },
           {
-            text: 'Upgrade',
+            text: t('upgrade'),
             onPress: () => router.push('/(tabs)/profile'),
           },
         ]
@@ -165,7 +163,7 @@ export default function DeviceControlScreen() {
           <View style={styles.statusRow}>
             <View style={[styles.statusDot, device?.is_online ? styles.statusOnline : styles.statusOffline]} />
             <Text style={styles.statusText}>
-              {device?.is_online ? 'Online' : 'Offline'}
+              {device?.is_online ? t('online') : t('offline')}
             </Text>
           </View>
         </View>
@@ -176,7 +174,7 @@ export default function DeviceControlScreen() {
         {/* Power Control */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Power</Text>
+            <Text style={styles.sectionTitle}>{t('power')}</Text>
             <Switch
               value={isOn}
               onValueChange={handleTogglePower}
@@ -189,7 +187,7 @@ export default function DeviceControlScreen() {
 
         {/* Brightness Control */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Brightness</Text>
+          <Text style={styles.sectionTitle}>{t('brightness')}</Text>
           <View style={styles.sliderContainer}>
             <Ionicons name="sunny-outline" size={20} color="#94a3b8" />
             <Slider
@@ -210,28 +208,30 @@ export default function DeviceControlScreen() {
 
         {/* Color Picker */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Color</Text>
-          <View style={styles.colorPickerContainer}>
-            <TriangleColorPicker
-              oldColor={selectedColor}
-              color={selectedColor}
-              onColorChange={handleColorChange}
-              onColorSelected={handleColorComplete}
-              style={styles.colorPicker}
-            />
+          <Text style={styles.sectionTitle}>{t('color')}</Text>
+          <View style={styles.colorGrid}>
+            {PRESET_COLORS.map((color, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.colorButton,
+                  { backgroundColor: color.color },
+                  selectedColor.name === color.name && styles.colorButtonSelected
+                ]}
+                onPress={() => handleColorSelect(color)}
+                disabled={controlling || !device?.is_online}
+              >
+                {selectedColor.name === color.name && (
+                  <Ionicons name="checkmark" size={24} color="#000" />
+                )}
+              </TouchableOpacity>
+            ))}
           </View>
-          <TouchableOpacity
-            style={[styles.applyButton, controlling && styles.applyButtonDisabled]}
-            onPress={handleColorComplete}
-            disabled={controlling || !device?.is_online}
-          >
-            <Text style={styles.applyButtonText}>Apply Color</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Presets */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Presets</Text>
+          <Text style={styles.sectionTitle}>{t('presets')}</Text>
           <View style={styles.presetsGrid}>
             {presets.map((preset) => {
               const isLocked = preset.is_premium && !user?.has_subscription;
@@ -366,30 +366,23 @@ const styles = StyleSheet.create({
     minWidth: 40,
     textAlign: 'right',
   },
-  colorPickerContainer: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 16,
+  colorGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  colorButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#334155',
   },
-  colorPicker: {
-    height: 250,
-    width: '100%',
-  },
-  applyButton: {
-    backgroundColor: '#6366f1',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  applyButtonDisabled: {
-    opacity: 0.6,
-  },
-  applyButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+  colorButtonSelected: {
+    borderColor: '#6366f1',
+    borderWidth: 4,
   },
   presetsGrid: {
     flexDirection: 'row',
