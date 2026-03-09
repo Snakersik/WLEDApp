@@ -1,178 +1,424 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import { ActivityIndicator, Alert, Platform, View } from "react-native";
+import { ScrollView } from "react-native-gesture-handler";
+import { SafeAreaView } from "react-native-safe-area-context";
+import DateTimePicker from "@react-native-community/datetimepicker";
+
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import { useAuth } from "../../src/context/AuthContext";
+import { useLanguage } from "../../src/context/LanguageContext";
+import { useHub } from "../../src/context/HubContext";
+import { HubService } from "../../src/services/hubService";
+
+import { WLEDLivePreview } from "../../src/components/WLEDLivePreview";
+import { UShapeLiveBorder } from "../../src/components/UShapeLiveBorder";
+
+import { EffectSliders } from "../../src/features/deviceControl/components/EffectSliders";
+
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-  Switch,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useAuth } from '../../src/context/AuthContext';
-import { useLanguage } from '../../src/context/LanguageContext';
-import axios from 'axios';
-import Slider from '@react-native-community/slider';
-import { WLEDService } from '../../src/services/wledService';
+  DeviceHeader,
+  ColorSection,
+  PresetsSection,
+  BottomBar,
+  PowerSleepModal,
+  PaletteSection,
+  usePaletteControl,
+  applyTemperatureTint,
+  rgbFromPickerPayload,
+  rgbToHex,
+  boostVibrance,
+  clamp255,
+  useDeviceControlData,
+  useProPresetsGate,
+  useSleepTimer,
+  useWledSync,
+  getPresetDefaultRgb,
+  styles,
+  type Preset,
+  type ModalMode,
+  type RGB,
+} from "../../src/features/deviceControl";
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + '/api';
+type BackendControlPayload = {
+  on?: boolean;
+  brightness?: number;
+  color?: [number, number, number];
+  preset_id?: string;
+  palette_slot?: number;
+  palette_colors?: number[][];
+};
 
-interface Device {
-  id: string;
-  name: string;
-  ip_address: string;
-  led_count: number;
-  is_online: boolean;
+function buildDeviceHubPayload(params: BackendControlPayload, presets: Preset[]) {
+  const p: Record<string, any> = {};
+  if (params.on !== undefined) p.on = params.on;
+  if (params.brightness !== undefined) p.bri = Math.round(params.brightness);
+  if (params.color) p.col = [params.color];
+  if (params.preset_id) {
+    const preset = presets.find((x) => String(x.id) === String(params.preset_id));
+    if (preset?.wled_fx !== undefined) {
+      p.fx = preset.wled_fx;
+      if (preset.sx !== undefined) p.sx = preset.sx;
+      if (preset.ix !== undefined) p.ix = preset.ix;
+    }
+  }
+  return p;
 }
-
-interface Preset {
-  id: string;
-  name: string;
-  description: string;
-  is_premium: boolean;
-}
-
-const PRESET_COLORS = [
-  { name: 'Red', color: '#FF0000', rgb: [255, 0, 0] },
-  { name: 'Green', color: '#00FF00', rgb: [0, 255, 0] },
-  { name: 'Blue', color: '#0000FF', rgb: [0, 0, 255] },
-  { name: 'Yellow', color: '#FFFF00', rgb: [255, 255, 0] },
-  { name: 'Purple', color: '#FF00FF', rgb: [255, 0, 255] },
-  { name: 'Cyan', color: '#00FFFF', rgb: [0, 255, 255] },
-  { name: 'Orange', color: '#FF8800', rgb: [255, 136, 0] },
-  { name: 'Pink', color: '#FF1493', rgb: [255, 20, 147] },
-  { name: 'White', color: '#FFFFFF', rgb: [255, 255, 255] },
-];
 
 export default function DeviceControlScreen() {
   const { id } = useLocalSearchParams();
-  const { token, user } = useAuth();
-  const { t } = useLanguage();
   const router = useRouter();
-  
-  const [device, setDevice] = useState<Device | null>(null);
-  const [presets, setPresets] = useState<Preset[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  const { token, user, refreshMe } = useAuth() as any;
+  const { t } = useLanguage();
+  const { hubIp } = useHub();
+
   const [controlling, setControlling] = useState(false);
-  
+  const [headerHeight, setHeaderHeight] = useState(72);
   const [isOn, setIsOn] = useState(true);
+
   const [brightness, setBrightness] = useState(128);
-  const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0]);
+  const [baseHex, setBaseHex] = useState("#FF0000");
+  const [baseRgb, setBaseRgb] = useState<[number, number, number]>([255, 0, 0]);
+  const [temperature, setTemperature] = useState(0);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [effectSpeed, setEffectSpeed] = useState(128);
+  const [effectIntensity, setEffectIntensity] = useState(128);
 
-  useEffect(() => {
-    fetchData();
-    // Check device online status periodically
-    const interval = setInterval(checkDeviceStatus, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const effectDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const checkDeviceStatus = async () => {
-    if (device) {
-      const isOnline = await WLEDService.isOnline(device.ip_address);
-      if (isOnline !== device.is_online) {
-        setDevice({ ...device, is_online: isOnline });
-      }
-    }
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode>("power");
+
+  const openModal = (mode: ModalMode) => {
+    setModalMode(mode);
+    setModalVisible(true);
   };
+  const closeModal = () => setModalVisible(false);
 
-  const fetchData = async () => {
-    try {
-      const [deviceRes, presetsRes] = await Promise.all([
-        axios.get(`${API_URL}/devices/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        axios.get(`${API_URL}/presets`),
-      ]);
-      
-      const deviceData = deviceRes.data;
-      // Check if device is actually online
-      const isOnline = await WLEDService.isOnline(deviceData.ip_address);
-      deviceData.is_online = isOnline;
-      
-      setDevice(deviceData);
-      setPresets(presetsRes.data);
-    } catch (error: any) {
-      console.error('Failed to fetch data:', error);
-      Alert.alert(t('error'), t('failedToLoad'));
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [timePickerValue, setTimePickerValue] = useState(new Date());
+
+  const { device, presets, loading } = useDeviceControlData({
+    id,
+    token,
+    onError: () => {
+      Alert.alert(t("error"), t("failedToLoad"));
       router.back();
-    } finally {
-      setLoading(false);
+    },
+  });
+
+  // ✅ PALETTE
+  const paletteCtl = usePaletteControl({
+    selectedPreset,
+    presets,
+    defaultPaletteSize: 1,
+    defaultPalette: [baseRgb as RGB],
+  });
+
+  // ✅ Init palette z preset.palette_default gdy zmienia się preset
+  useEffect(() => {
+    if (!selectedPreset || !presets.length) return;
+    const preset = presets.find((p: any) => p?.id === selectedPreset);
+    const pal = preset?.palette_default;
+    if (Array.isArray(pal) && pal.length > 0) {
+      paletteCtl.initPalette(pal as RGB[]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPreset, presets]);
+
+  const { syncing, syncFromDevice } = useWledSync();
+  const pro = useProPresetsGate({ user, token, refreshMe });
+
+  const buildFinalRgb = (rgb: [number, number, number], temp: number) => {
+    const tinted = applyTemperatureTint(rgb, temp);
+    return boostVibrance(tinted, 0.35);
   };
+
+  // On focus: claim exclusive hub control for this device.
+  // Remove it from any other hub groups (e.g. a parent group still streaming DDP)
+  // so there's only one active DDP loop per device at a time.
+  useFocusEffect(
+    useCallback(() => {
+      if (!device || !hubIp) return;
+      const deviceGroupId = String(id);
+
+      HubService.getGroups(hubIp)
+        .then((groups) => {
+          const conflicts = groups.filter(
+            (g) => g.id !== deviceGroupId && g.devices.includes(device.ip_address),
+          );
+          return Promise.allSettled(
+            conflicts.map((g) =>
+              HubService.updateGroup(hubIp, g.id, {
+                devices: g.devices.filter((ip) => ip !== device.ip_address),
+              }),
+            ),
+          );
+        })
+        .catch(() => {})
+        .finally(() => {
+          HubService.upsertGroup(hubIp, deviceGroupId, device.name, [device.ip_address]).catch(() => {});
+        });
+    }, [device, hubIp, id]),
+  );
+
+  const controlViaHub = useCallback(
+    async (payload: BackendControlPayload) => {
+      if (!hubIp) throw new Error("No hub IP");
+      const hubPayload = buildDeviceHubPayload(payload, presets);
+      await HubService.setGroupState(hubIp, String(id), hubPayload as any);
+    },
+    [hubIp, id, presets],
+  );
 
   const controlDevice = async (action: () => Promise<any>) => {
-    if (!device?.is_online) {
-      Alert.alert(t('deviceOffline'), t('deviceNotReachable'));
+    if (!hubIp) {
+      Alert.alert(t("deviceOffline"), t("deviceNotReachable"));
       return;
     }
-
     setControlling(true);
     try {
-      const result = await action();
-      if (!result.success) {
-        Alert.alert(t('error'), result.error || t('failedToControl'));
-      }
-    } catch (error: any) {
-      Alert.alert(t('error'), t('failedToControl'));
+      await action();
+    } catch {
+      // silently ignore — hub may be temporarily unreachable
     } finally {
       setControlling(false);
     }
   };
 
+  const sleep = useSleepTimer({
+    deviceId: device?.id,
+    onFire: async () => {
+      await controlDevice(() => controlViaHub({ on: false }));
+      setIsOn(false);
+    },
+  });
+
+  // ✅ PALETTE: accept paletteSlot + paletteColors by value (nie stale closure)
+  const sendColorDebounced = (
+    rgb: [number, number, number],
+    paletteSlot?: number,
+    paletteColors?: number[][],
+  ) => {
+    if (!hubIp) return;
+
+    if (colorDebounceRef.current) clearTimeout(colorDebounceRef.current);
+    colorDebounceRef.current = setTimeout(() => {
+      controlViaHub({
+        color: [rgb[0], rgb[1], rgb[2]],
+        ...(selectedPreset ? { preset_id: selectedPreset } : {}),
+        ...(paletteSlot !== undefined ? { palette_slot: paletteSlot } : {}),
+        ...(paletteColors ? { palette_colors: paletteColors } : {}),
+      }).catch(() => {});
+    }, 120);
+  };
+
   const handleTogglePower = async (value: boolean) => {
     setIsOn(value);
-    await controlDevice(() => WLEDService.setPower(device!.ip_address, value));
+    await controlDevice(() => controlViaHub({ on: value }));
   };
 
-  const handleBrightnessChange = async (value: number) => {
-    setBrightness(value);
+  const handleSetSleepMinutes = async (minutes: number) => {
+    await sleep.setMinutes(minutes);
+    // Immediately dim to signal "sleep mode active"
+    setBrightness(25);
+    await controlDevice(() => controlViaHub({ brightness: 25 }));
+    closeModal();
   };
 
-  const handleBrightnessComplete = async () => {
-    await controlDevice(() => WLEDService.setBrightness(device!.ip_address, Math.round(brightness)));
+  const handleSetSleepAtTime = async (hours: number, minutes: number) => {
+    await sleep.setOffAtTime(hours, minutes);
+    setBrightness(25);
+    await controlDevice(() => controlViaHub({ brightness: 25 }));
   };
 
-  const handleColorSelect = async (color: typeof PRESET_COLORS[0]) => {
-    setSelectedColor(color);
-    await controlDevice(() => WLEDService.setColor(device!.ip_address, color.rgb));
+  const handleSync = async () => {
+    if (!device?.ip_address) {
+      Alert.alert(t("deviceOffline"), t("deviceNotReachable"));
+      return;
+    }
+
+    const res = await syncFromDevice(device.ip_address);
+    if (!res.ok) return Alert.alert(t("error"), res.error);
+
+    const next = res.next;
+    if (typeof next.isOn === "boolean") setIsOn(next.isOn);
+    if (typeof next.brightness === "number") setBrightness(next.brightness);
+    if (next.baseRgb) setBaseRgb(next.baseRgb);
+    if (next.baseHex) setBaseHex(next.baseHex);
+
+    setTemperature(0);
+    setSelectedPreset(null);
+  };
+
+  const onPickerChange = (payload: any) => {
+    const rgb = rgbFromPickerPayload(payload);
+    setBaseRgb(rgb);
+    setBaseHex(rgbToHex(rgb));
+    // ✅ PALETTE: update frontend state + przekaż slot + całą paletę do debounce
+    if (paletteCtl.visible) {
+      paletteCtl.setSlotColor(paletteCtl.paletteSlot, rgb);
+    }
+    sendColorDebounced(
+      buildFinalRgb(rgb, temperature),
+      paletteCtl.paletteSlot,
+      paletteCtl.visible ? paletteCtl.palette : undefined,
+    );
+  };
+
+  const onPickerComplete = async (payload: any) => {
+    const hex = payload?.hex ?? baseHex;
+    const rgb = rgbFromPickerPayload(payload);
+    setBaseHex(hex);
+    setBaseRgb(rgb);
+    // ✅ PALETTE: update frontend state
+    if (paletteCtl.visible) {
+      paletteCtl.setSlotColor(paletteCtl.paletteSlot, rgb);
+    }
+
+    const adjusted = buildFinalRgb(rgb, temperature);
+    await controlDevice(() =>
+      controlViaHub({
+        color: [adjusted[0], adjusted[1], adjusted[2]],
+        ...(selectedPreset ? { preset_id: selectedPreset } : {}),
+        ...(paletteCtl.visible ? { palette_slot: paletteCtl.paletteSlot } : {}),
+        // ✅ wysyłamy całą paletę — backend jest bezstanowy, ładuje preset od nowa
+        ...(paletteCtl.visible ? { palette_colors: paletteCtl.palette } : {}),
+      }),
+    );
+  };
+
+  const onTemperatureChange = (v: number) => {
+    const vv = Math.round(v);
+    setTemperature(vv);
+    sendColorDebounced(
+      buildFinalRgb(baseRgb, vv),
+      paletteCtl.paletteSlot,
+      paletteCtl.visible ? paletteCtl.palette : undefined,
+    );
+  };
+
+  const onTemperatureComplete = async () => {
+    const adjusted = buildFinalRgb(baseRgb, temperature);
+    await controlDevice(() =>
+      controlViaHub({
+        color: [adjusted[0], adjusted[1], adjusted[2]],
+        ...(selectedPreset ? { preset_id: selectedPreset } : {}),
+        ...(paletteCtl.visible ? { palette_slot: paletteCtl.paletteSlot } : {}),
+        ...(paletteCtl.visible ? { palette_colors: paletteCtl.palette } : {}),
+      }),
+    );
+  };
+
+  const onBrightnessComplete = async () => {
+    const adjusted = buildFinalRgb(baseRgb, temperature);
+    await controlDevice(() =>
+      controlViaHub({
+        brightness: Math.round(brightness),
+        ...(selectedPreset ? { preset_id: selectedPreset } : {}),
+        // ✅ gdy paleta aktywna — NIE wysyłamy color (żeby nie nadpisać slotu),
+        //    tylko całą paletę żeby zachować wszystkie kolory
+        ...(paletteCtl.visible
+          ? { palette_colors: paletteCtl.palette }
+          : { color: [adjusted[0], adjusted[1], adjusted[2]] }
+        ),
+      }),
+    );
+  };
+
+  // ✅ PALETTE: klik slotu = tylko selekcja do edycji, sync pickera
+  const onPickPaletteSlot = (slot: number) => {
+    paletteCtl.pickSlot(slot);
+
+    const c = paletteCtl.palette?.[slot];
+    if (!c || c.length < 3) return;
+
+    const rgb: [number, number, number] = [
+      clamp255(c[0]),
+      clamp255(c[1]),
+      clamp255(c[2]),
+    ];
+    setBaseRgb(rgb);
+    setBaseHex(rgbToHex(rgb));
   };
 
   const handlePresetSelect = async (preset: Preset) => {
-    if (preset.is_premium && !user?.has_subscription) {
+    if (!pro.canUsePreset(preset)) {
+      const packId = preset.pack_id || "pro-pack";
       Alert.alert(
-        t('premiumRequired'),
-        t('presetRequiresPremium'),
+        "PRO Preset Pack",
+        `Ten preset jest PRO.\n\nOdblokować paczkę "${packId}" na 60 minut?`,
         [
-          { text: t('cancel'), style: 'cancel' },
+          { text: "Cancel", style: "cancel" },
           {
-            text: t('upgrade'),
-            onPress: () => router.push('/(tabs)/profile'),
+            text: "Unlock 1h",
+            onPress: async () => {
+              const r = await pro.startPackTrial(preset.pack_id);
+              if (!r.ok) Alert.alert("Error", r.error);
+              else
+                Alert.alert(
+                  "Unlocked ✅",
+                  `Pack "${packId}" odblokowany na 60 min`,
+                );
+            },
           },
-        ]
+          { text: "Upgrade", onPress: () => router.push("/(tabs)/profile") },
+        ],
       );
       return;
     }
 
     setSelectedPreset(preset.id);
-    
-    // Get preset details from backend to get effect parameters
-    const presetData = presets.find(p => p.id === preset.id);
-    if (presetData && device) {
-      await controlDevice(() => 
-        WLEDService.applyPreset(
-          device.ip_address,
-          (presetData as any).effect_id,
-          (presetData as any).speed || 128,
-          (presetData as any).intensity || 128,
-          (presetData as any).palette || 0
-        )
-      );
-    }
+
+    // Use the preset's own default color — not the user's currently selected color
+    const defaultRgb = getPresetDefaultRgb(preset);
+    setBaseRgb(defaultRgb);
+    setBaseHex(rgbToHex(defaultRgb));
+    setTemperature(0);
+    setEffectSpeed((preset as any).sx ?? 128);
+    setEffectIntensity((preset as any).ix ?? 128);
+
+    await controlDevice(() =>
+      controlViaHub({
+        preset_id: preset.id,
+        color: defaultRgb,
+        brightness: Math.round(brightness),
+        on: true,
+      }),
+    );
+
+    setIsOn(true);
   };
+
+  const selectedPresetObj = presets.find((p: any) => p?.id === selectedPreset) ?? null;
+  const colorLocked = !!selectedPresetObj?.color_locked;
+
+  const handleResetColors = async () => {
+    if (!selectedPresetObj) return;
+    const defaultRgb = getPresetDefaultRgb(selectedPresetObj);
+    setBaseRgb(defaultRgb);
+    setBaseHex(rgbToHex(defaultRgb));
+    setTemperature(0);
+    await controlDevice(() =>
+      controlViaHub({
+        preset_id: selectedPresetObj.id,
+        color: defaultRgb,
+        brightness: Math.round(brightness),
+      }),
+    );
+  };
+
+  const sendEffectParams = (sx: number, ix: number) => {
+    if (!hubIp) return;
+    if (effectDebounceRef.current) clearTimeout(effectDebounceRef.current);
+    effectDebounceRef.current = setTimeout(() => {
+      HubService.setGroupState(hubIp, String(id), { seg: [{ sx: Math.round(sx), ix: Math.round(ix) }] } as any).catch(() => {});
+    }, 80);
+  };
+
+  const adjustedRgb = buildFinalRgb(baseRgb, temperature);
+  const adjustedHex = rgbToHex(adjustedRgb);
 
   if (loading) {
     return (
@@ -182,280 +428,161 @@ export default function DeviceControlScreen() {
     );
   }
 
+  const BORDER_THICKNESS = 6;
+  const BORDER_GUTTER = BORDER_THICKNESS + 10;
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#f1f5f9" />
-        </TouchableOpacity>
-        <View style={styles.headerInfo}>
-          <Text style={styles.title}>{device?.name}</Text>
-          <View style={styles.statusRow}>
-            <View style={[styles.statusDot, device?.is_online ? styles.statusOnline : styles.statusOffline]} />
-            <Text style={styles.statusText}>
-              {device?.is_online ? t('online') : t('offline')}
-            </Text>
-          </View>
-        </View>
-        <View style={styles.placeholder} />
+      <View style={{ flex: 1 }}>
+        <DeviceHeader
+          device={device}
+          colorHex={adjustedHex}
+          isOn={isOn}
+          onBack={() => router.back()}
+          onLayout={setHeaderHeight}
+          t={t as (k: string) => string}
+        />
+
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingBottom: 140,
+              paddingLeft: BORDER_GUTTER,
+              paddingRight: BORDER_GUTTER,
+            },
+          ]}
+        >
+          {!!device?.ip_address && (
+            <View style={styles.section}>
+              <WLEDLivePreview
+                ip={device.ip_address}
+                height={210}
+                ledCount={device?.led_count ?? 119}
+                label={t("preview") ?? "Preview"}
+                layoutType="u-shape"
+                topLeds={10}
+                sideLeds={25}
+                pollMs={500}
+              />
+            </View>
+          )}
+
+          <ColorSection
+            title={t("color") ?? "Color"}
+            baseHex={baseHex}
+            adjustedHex={adjustedHex}
+            adjustedRgb={adjustedRgb}
+            temperature={temperature}
+            brightness={brightness}
+            controlling={controlling}
+            isOnline={!!hubIp}
+            colorLocked={colorLocked}
+            onResetColors={colorLocked ? undefined : handleResetColors}
+            onPickerChange={onPickerChange}
+            onPickerComplete={onPickerComplete}
+            onTemperatureChange={onTemperatureChange}
+            onTemperatureComplete={onTemperatureComplete}
+            onBrightnessChange={setBrightness}
+            onBrightnessComplete={onBrightnessComplete}
+          />
+
+          {/* ✅ PALETTE SECTION */}
+          <PaletteSection
+            visible={paletteCtl.visible}
+            title={t("palette") ?? "Palette"}
+            disabled={controlling || !hubIp}
+            paletteSize={paletteCtl.paletteSize}
+            palette={paletteCtl.palette}
+            paletteSlot={paletteCtl.paletteSlot}
+            onPickSlot={onPickPaletteSlot}
+          />
+
+          {selectedPreset !== null && (
+            <EffectSliders
+              speed={effectSpeed}
+              intensity={effectIntensity}
+              controlling={controlling}
+              isOnline={!!hubIp}
+              onSpeedChange={(v) => { setEffectSpeed(v); sendEffectParams(v, effectIntensity); }}
+              onSpeedComplete={(v) => { setEffectSpeed(v); sendEffectParams(v, effectIntensity); }}
+              onIntensityChange={(v) => { setEffectIntensity(v); sendEffectParams(effectSpeed, v); }}
+              onIntensityComplete={(v) => { setEffectIntensity(v); sendEffectParams(effectSpeed, v); }}
+            />
+          )}
+
+          <PresetsSection
+            title={t("presets") ?? "Presets"}
+            presets={presets}
+            selectedPreset={selectedPreset}
+            controlling={controlling}
+            isOnline={!!hubIp}
+            lockedFn={(p) => p.is_premium && !pro.canUsePreset(p)}
+            trialActiveFn={(p) =>
+              !user?.has_subscription &&
+              p.is_premium &&
+              !!pro.canUsePreset(p) &&
+              pro.hasActiveTrialForPack(p.pack_id)
+            }
+            onSelect={handlePresetSelect}
+          />
+        </ScrollView>
+
+        <BottomBar
+          isOnline={!!hubIp}
+          controlling={controlling}
+          isOn={isOn}
+          hasSleep={!!sleep.sleepTargetTs}
+          syncing={syncing}
+          onPower={() => handleTogglePower(!isOn)}
+          onSleep={() => openModal("sleep")}
+          onSync={handleSync}
+          t={t as (k: string) => string}
+        />
+
+        {/* Border renderowany jako ostatni — na wierzchu ScrollView/BottomBar */}
+        {!!device?.ip_address && (
+          <UShapeLiveBorder
+            ip={device.ip_address}
+            pollMs={200}
+            thickness={BORDER_THICKNESS}
+            smoothing={0.65}
+            topOffset={headerHeight}
+          />
+        )}
+
+        <PowerSleepModal
+          visible={modalVisible}
+          mode={modalMode}
+          onClose={closeModal}
+          isOn={isOn}
+          onTogglePower={() => handleTogglePower(!isOn)}
+          hasSleep={!!sleep.sleepTargetTs}
+          remainingText={sleep.formatRemaining(sleep.sleepRemainingSec)}
+          onSetMinutes={handleSetSleepMinutes}
+          onPickTime={() => setShowTimePicker(true)}
+          onCancelSleep={sleep.cancel}
+          isOnline={!!hubIp}
+          controlling={controlling}
+          t={t as (k: string) => string}
+        />
+
+        {showTimePicker && (
+          <DateTimePicker
+            value={timePickerValue}
+            mode="time"
+            is24Hour={true}
+            display={Platform.OS === "ios" ? "spinner" : "default"}
+            onChange={async (_event, date) => {
+              if (Platform.OS !== "ios") setShowTimePicker(false);
+              if (!date) return;
+              setTimePickerValue(date);
+              await handleSetSleepAtTime(date.getHours(), date.getMinutes());
+              if (Platform.OS !== "ios") setShowTimePicker(false);
+            }}
+          />
+        )}
       </View>
-
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Power Control */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t('power')}</Text>
-            <Switch
-              value={isOn}
-              onValueChange={handleTogglePower}
-              trackColor={{ false: '#334155', true: '#818cf8' }}
-              thumbColor={isOn ? '#6366f1' : '#94a3b8'}
-              disabled={controlling || !device?.is_online}
-            />
-          </View>
-        </View>
-
-        {/* Brightness Control */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('brightness')}</Text>
-          <View style={styles.sliderContainer}>
-            <Ionicons name="sunny-outline" size={20} color="#94a3b8" />
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={255}
-              value={brightness}
-              onValueChange={handleBrightnessChange}
-              onSlidingComplete={handleBrightnessComplete}
-              minimumTrackTintColor="#6366f1"
-              maximumTrackTintColor="#334155"
-              thumbTintColor="#6366f1"
-              disabled={controlling || !device?.is_online}
-            />
-            <Text style={styles.brightnessValue}>{Math.round(brightness)}</Text>
-          </View>
-        </View>
-
-        {/* Color Picker */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('color')}</Text>
-          <View style={styles.colorGrid}>
-            {PRESET_COLORS.map((color, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.colorButton,
-                  { backgroundColor: color.color },
-                  selectedColor.name === color.name && styles.colorButtonSelected
-                ]}
-                onPress={() => handleColorSelect(color)}
-                disabled={controlling || !device?.is_online}
-              >
-                {selectedColor.name === color.name && (
-                  <Ionicons name="checkmark" size={24} color="#000" />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Presets */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('presets')}</Text>
-          <View style={styles.presetsGrid}>
-            {presets.map((preset) => {
-              const isLocked = preset.is_premium && !user?.has_subscription;
-              const isSelected = selectedPreset === preset.id;
-              
-              return (
-                <TouchableOpacity
-                  key={preset.id}
-                  style={[
-                    styles.presetCard,
-                    isSelected && styles.presetCardSelected,
-                    isLocked && styles.presetCardLocked,
-                  ]}
-                  onPress={() => handlePresetSelect(preset)}
-                  disabled={controlling || !device?.is_online}
-                >
-                  {isLocked && (
-                    <View style={styles.lockBadge}>
-                      <Ionicons name="lock-closed" size={12} color="#f59e0b" />
-                    </View>
-                  )}
-                  <Ionicons
-                    name="color-palette"
-                    size={24}
-                    color={isLocked ? '#f59e0b' : isSelected ? '#6366f1' : '#818cf8'}
-                  />
-                  <Text style={[
-                    styles.presetName,
-                    isSelected && styles.presetNameSelected,
-                  ]}>
-                    {preset.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-      </ScrollView>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#0f172a',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-  },
-  headerInfo: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  placeholder: {
-    width: 44,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#f1f5f9',
-    marginBottom: 4,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  statusOnline: {
-    backgroundColor: '#10b981',
-  },
-  statusOffline: {
-    backgroundColor: '#6b7280',
-  },
-  statusText: {
-    fontSize: 12,
-    color: '#94a3b8',
-  },
-  content: {
-    padding: 20,
-  },
-  section: {
-    marginBottom: 32,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#f1f5f9',
-    marginBottom: 16,
-  },
-  sliderContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 16,
-  },
-  slider: {
-    flex: 1,
-    marginHorizontal: 12,
-  },
-  brightnessValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#f1f5f9',
-    minWidth: 40,
-    textAlign: 'right',
-  },
-  colorGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  colorButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#334155',
-  },
-  colorButtonSelected: {
-    borderColor: '#6366f1',
-    borderWidth: 4,
-  },
-  presetsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  presetCard: {
-    width: '30%',
-    aspectRatio: 1,
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#334155',
-  },
-  presetCardSelected: {
-    borderColor: '#6366f1',
-    backgroundColor: '#312e81',
-  },
-  presetCardLocked: {
-    opacity: 0.7,
-  },
-  lockBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: '#422006',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  presetName: {
-    fontSize: 12,
-    color: '#94a3b8',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  presetNameSelected: {
-    color: '#f1f5f9',
-    fontWeight: '600',
-  },
-});

@@ -1,19 +1,21 @@
 {
   "expo": {
-    "name": "frontend",
+    "name": "Techion Light",
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "techionlight",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Skanuj QR code aby dodać urządzenie WLED",
         "NSLocalNetworkUsageDescription": "Wykryj urządzenia WLED w sieci lokalnej",
-        "NSBonjourServices": ["_wled._tcp"]
+        "NSBonjourServices": [
+          "_wled._tcp"
+        ]
       }
     },
     "android": {
@@ -26,8 +28,13 @@
         "android.permission.CAMERA",
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
-        "android.permission.CHANGE_WIFI_MULTICAST_STATE"
-      ]
+        "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ],
+      "package": "com.techion.light"
     },
     "web": {
       "bundler": "metro",
@@ -50,10 +57,19 @@
           "resizeMode": "contain",
           "backgroundColor": "#000"
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker",
+      "react-native-ble-plx",
+      "./plugins/withAndroidAGP"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2a808c9d-bb88-49a4-ae78-5ebb8ada01c1"
+      }
     }
   }
 }

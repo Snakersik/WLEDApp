@@ -1,0 +1,27 @@
+{
+  "cli": {
+    "version": ">= 18.1.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "image": "sdk-54"
+      },
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "http://192.168.10.42:8002"
+      }
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
