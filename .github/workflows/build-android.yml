@@ -39,7 +39,7 @@ jobs:
         working-directory: frontend
         env:
           EXPO_PUBLIC_BACKEND_URL: ${{ github.event.inputs.backend_url }}
-        run: npx expo prebuild --platform android --clean --no-install
+        run: npx expo prebuild --platform android --clean
 
       - name: Make gradlew executable
         working-directory: frontend/android
