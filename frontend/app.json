@@ -59,7 +59,7 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "react-native-ble-plx",
+      "react-native-ble-plx/app.plugin",
       "./plugins/withAndroidAGP"
     ],
     "experiments": {
