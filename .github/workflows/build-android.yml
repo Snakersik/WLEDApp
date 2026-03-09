@@ -33,7 +33,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm install
 
       - name: Expo Prebuild (Android only)
         working-directory: frontend
