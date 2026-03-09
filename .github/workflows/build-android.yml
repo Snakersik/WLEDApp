@@ -33,7 +33,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: npm install
+        run: yarn install --frozen-lockfile || yarn install
 
       - name: Expo Prebuild (Android only)
         working-directory: frontend
