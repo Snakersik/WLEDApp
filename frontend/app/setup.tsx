@@ -21,6 +21,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Device } from "react-native-ble-plx";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
+import WifiManager from "react-native-wifi-reborn";
 import axios from "axios";
 
 import { useAuth } from "../src/context/AuthContext";
@@ -67,8 +68,10 @@ export default function SetupScreen() {
   const [foundDevice, setFoundDevice] = useState<Device | null>(null);
 
   // WiFi form
-  const [ssid, setSsid]         = useState("");
-  const [wifiPass, setWifiPass] = useState("");
+  const [ssid, setSsid]               = useState("");
+  const [wifiPass, setWifiPass]       = useState("");
+  const [wifiNetworks, setWifiNetworks] = useState<string[]>([]);
+  const [scanningWifi, setScanningWifi] = useState(false);
 
   // Hub registration
   const [hubIpInput, setHubIpInput] = useState("");
@@ -121,6 +124,20 @@ export default function SetupScreen() {
     };
   }, []);
 
+  // ── WiFi network scan ────────────────────────────────────────
+  const scanWifiNetworks = useCallback(async () => {
+    setScanningWifi(true);
+    try {
+      const nets = await WifiManager.loadWifiList();
+      const ssids = [...new Set((nets as any[]).map((n) => n.SSID).filter(Boolean))].sort() as string[];
+      setWifiNetworks(ssids);
+    } catch {
+      setWifiNetworks([]);
+    } finally {
+      setScanningWifi(false);
+    }
+  }, []);
+
   // ── Step helpers ─────────────────────────────────────────────
   const go = useCallback((s: Step, msg = "") => {
     if (!isMounted.current) return;
@@ -155,6 +172,7 @@ export default function SetupScreen() {
     if (result.status === "found") {
       setFoundDevice(result.device);
       go("wifi_form");
+      scanWifiNetworks();
     } else if (result.status === "timeout") {
       Alert.alert(
         "Nie znaleziono huba",
@@ -175,7 +193,7 @@ export default function SetupScreen() {
       Alert.alert("Błąd BLE", result.message);
       go("intro");
     }
-  }, [go]);
+  }, [go, scanWifiNetworks]);
 
   // ── BLE send WiFi credentials ─────────────────────────────────
   const sendWifiViaBle = useCallback(async () => {
@@ -352,6 +370,36 @@ export default function SetupScreen() {
               <Text style={s.body}>
                 Podaj dane sieci, do której hub ma się podłączyć.
               </Text>
+
+              {/* Network picker */}
+              {scanningWifi ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
+                  <ActivityIndicator size="small" color="#6366f1" />
+                  <Text style={s.hint}>Szukam dostępnych sieci…</Text>
+                </View>
+              ) : wifiNetworks.length > 0 ? (
+                <>
+                  <Text style={s.hint}>Wybierz sieć lub wpisz ręcznie poniżej:</Text>
+                  <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                    {wifiNetworks.map((net) => (
+                      <TouchableOpacity
+                        key={net}
+                        style={[s.netRow, ssid === net && s.netRowSelected]}
+                        onPress={() => setSsid(net)}
+                      >
+                        <Ionicons name="wifi-outline" size={16} color={ssid === net ? "#6366f1" : "#94a3b8"} />
+                        <Text style={[s.netText, ssid === net && s.netTextSelected]}>{net}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </>
+              ) : (
+                <TouchableOpacity onPress={scanWifiNetworks} style={s.scanNetBtn}>
+                  <Ionicons name="search-outline" size={15} color="#6366f1" />
+                  <Text style={s.scanNetBtnText}>Szukaj dostępnych sieci</Text>
+                </TouchableOpacity>
+              )}
+
               <Text style={s.label}>Nazwa sieci (SSID)</Text>
               <TextInput
                 style={s.input}
@@ -595,4 +643,11 @@ const s = StyleSheet.create({
     marginTop: 8,
   },
   btnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+
+  netRow:          { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: "#334155", marginTop: 4 },
+  netRowSelected:  { borderColor: "#6366f1", backgroundColor: "#1e1b4b" },
+  netText:         { color: "#94a3b8", fontSize: 14, flex: 1 },
+  netTextSelected: { color: "#6366f1", fontWeight: "700" },
+  scanNetBtn:      { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginTop: 4 },
+  scanNetBtnText:  { color: "#6366f1", fontSize: 13, fontWeight: "600" },
 });

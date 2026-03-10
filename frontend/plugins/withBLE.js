@@ -37,6 +37,11 @@ module.exports = function withBLE(config) {
       "android:maxSdkVersion": "30",
     });
 
+    // WiFi scanning permissions
+    addPerm(perms, "android.permission.ACCESS_WIFI_STATE");
+    addPerm(perms, "android.permission.CHANGE_WIFI_STATE");
+    addPerm(perms, "android.permission.ACCESS_FINE_LOCATION");
+
     // Make sure tools namespace is available
     AndroidConfig.Manifest.ensureToolsAvailable(manifest);
 
