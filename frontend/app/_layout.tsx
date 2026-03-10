@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import React from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "../src/context/AuthContext";
 import { LanguageProvider } from "../src/context/LanguageContext";
 import { SubscriptionProvider } from "../src/billing/SubscriptionContext";
@@ -8,6 +9,7 @@ import { HubProvider } from "../src/context/HubContext";
 
 export default function RootLayout() {
   return (
+    <SafeAreaProvider>
     <GestureHandlerRootView style={{ flex: 1 }}>
       <LanguageProvider>
         <AuthProvider>
@@ -19,5 +21,6 @@ export default function RootLayout() {
         </AuthProvider>
       </LanguageProvider>
     </GestureHandlerRootView>
+    </SafeAreaProvider>
   );
 }

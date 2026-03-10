@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  PermissionsAndroid,
   Platform,
   ScrollView,
   StyleSheet,
@@ -18,6 +19,18 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+async function requestBlePermissions(): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+  const grants = await PermissionsAndroid.requestMultiple([
+    PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+    PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+  ]);
+  return Object.values(grants).every(
+    (v) => v === PermissionsAndroid.RESULTS.GRANTED
+  );
+}
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -96,6 +109,12 @@ export default function SetupScreen() {
   // ── BLE scan ─────────────────────────────────────────────────
   const startBleScan = useCallback(async () => {
     go("ble_scan", "Szukam huba w pobliżu…");
+    const hasPerms = await requestBlePermissions();
+    if (!hasPerms) {
+      Alert.alert("Brak uprawnień", "Zezwól na dostęp do Bluetooth i lokalizacji w ustawieniach telefonu.");
+      go("intro");
+      return;
+    }
     const result = await scanForHub(20_000);
     if (!isMounted.current) return;
 

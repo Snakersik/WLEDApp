@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { Platform, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -38,6 +39,7 @@ export default function TabsLayout() {
   const { t } = useLanguage();
   const { token, loading } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (loading) return;
@@ -54,7 +56,7 @@ export default function TabsLayout() {
         // ── Floating pill tab bar ───────────────────────────────
         tabBarStyle: {
           position: "absolute",
-          bottom: TAB_BOT,
+          bottom: TAB_BOT + insets.bottom,
           left: 16,
           right: 16,
           height: TAB_H,
