@@ -21,37 +21,6 @@ import {
   View,
 } from "react-native";
 
-async function requestBlePermissions(): Promise<boolean> {
-  if (Platform.OS !== "android") return true;
-
-  const sdk = Platform.Version as number;
-
-  if (sdk >= 31) {
-    // Android 12+ (API 31+): BLUETOOTH_SCAN + BLUETOOTH_CONNECT are sufficient for BLE
-    const perms = [
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-    ];
-    // Check first — if already granted, skip the dialog (fast path)
-    const checks = await Promise.all(perms.map((p) => PermissionsAndroid.check(p)));
-    if (checks.every(Boolean)) return true;
-
-    const grants = await PermissionsAndroid.requestMultiple(perms);
-    // Accept GRANTED or NEVER_ASK_AGAIN — on MIUI/OEM ROMs, NEVER_ASK_AGAIN can mean
-    // the permission is actually granted as part of a grouped "Nearby devices" permission.
-    // Only block if explicitly DENIED.
-    return Object.values(grants).every(
-      (v) => v === PermissionsAndroid.RESULTS.GRANTED ||
-             v === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN
-    );
-  } else {
-    // Android < 12: only ACCESS_FINE_LOCATION needed for BLE
-    const already = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-    if (already) return true;
-    const grant = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-    return grant === PermissionsAndroid.RESULTS.GRANTED;
-  }
-}
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -130,18 +99,24 @@ export default function SetupScreen() {
   // ── BLE scan ─────────────────────────────────────────────────
   const startBleScan = useCallback(async () => {
     go("ble_scan", "Szukam huba w pobliżu…");
-    const hasPerms = await requestBlePermissions();
-    if (!hasPerms) {
-      Alert.alert(
-        "Brak uprawnień Bluetooth",
-        "Zezwól na 'Urządzenia w pobliżu' (Bluetooth) w ustawieniach aplikacji.",
-        [
-          { text: "Anuluj", style: "cancel", onPress: () => go("intro") },
-          { text: "Otwórz ustawienia", onPress: () => { Linking.openSettings(); go("intro"); } },
-        ],
-      );
-      return;
+
+    // Request permissions to show the system dialog on first run.
+    // We do NOT block on the result — OEM ROMs (MIUI etc.) return incorrect values.
+    // The BLE library itself will report a permission error (errorCode 102) if needed.
+    if (Platform.OS === "android") {
+      const sdk = Platform.Version as number;
+      if (sdk >= 31) {
+        await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        ]).catch(() => {});
+      } else {
+        await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        ).catch(() => {});
+      }
     }
+
     const result = await scanForHub(20_000);
     if (!isMounted.current) return;
 
@@ -155,6 +130,15 @@ export default function SetupScreen() {
         [{ text: "Spróbuj ponownie", onPress: startBleScan }, { text: "Anuluj" }],
       );
       go("intro");
+    } else if (result.isPermissionError) {
+      Alert.alert(
+        "Brak uprawnień Bluetooth",
+        "Zezwól na 'Urządzenia w pobliżu' w ustawieniach aplikacji.",
+        [
+          { text: "Anuluj", style: "cancel", onPress: () => go("intro") },
+          { text: "Otwórz ustawienia", onPress: () => { Linking.openSettings(); go("intro"); } },
+        ],
+      );
     } else {
       Alert.alert("Błąd BLE", result.message);
       go("intro");

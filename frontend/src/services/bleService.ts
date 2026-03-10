@@ -25,7 +25,7 @@ function getManager(): BleManager {
 export type ScanResult =
   | { status: 'found'; device: Device }
   | { status: 'timeout' }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string; isPermissionError?: boolean };
 
 /** Scan BLE for "WLED-Hub". Resolves when found or times out. */
 export async function scanForHub(timeoutMs = 20_000): Promise<ScanResult> {
@@ -41,7 +41,11 @@ export async function scanForHub(timeoutMs = 20_000): Promise<ScanResult> {
       if (err) {
         clearTimeout(timer);
         manager.stopDeviceScan();
-        resolve({ status: 'error', message: err.message });
+        resolve({
+          status: 'error',
+          message: err.message,
+          isPermissionError: (err as any).errorCode === 102,
+        });
         return;
       }
       if (device?.name === HUB_DEVICE_NAME) {
