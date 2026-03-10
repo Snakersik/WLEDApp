@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Linking,
   PermissionsAndroid,
   Platform,
   ScrollView,
@@ -22,14 +23,29 @@ import {
 
 async function requestBlePermissions(): Promise<boolean> {
   if (Platform.OS !== "android") return true;
-  const grants = await PermissionsAndroid.requestMultiple([
-    PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-    PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-  ]);
-  return Object.values(grants).every(
-    (v) => v === PermissionsAndroid.RESULTS.GRANTED
-  );
+
+  const sdk = Platform.Version as number;
+
+  if (sdk >= 31) {
+    // Android 12+ (API 31+): BLUETOOTH_SCAN + BLUETOOTH_CONNECT are runtime permissions
+    const perms = [
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+    ];
+    // Check first — if already granted, skip the dialog
+    const checks = await Promise.all(perms.map((p) => PermissionsAndroid.check(p)));
+    if (checks.every(Boolean)) return true;
+
+    const grants = await PermissionsAndroid.requestMultiple(perms);
+    return Object.values(grants).every((v) => v === PermissionsAndroid.RESULTS.GRANTED);
+  } else {
+    // Android < 12: only ACCESS_FINE_LOCATION needed for BLE
+    const already = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+    if (already) return true;
+    const grant = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+    return grant === PermissionsAndroid.RESULTS.GRANTED;
+  }
 }
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -111,8 +127,14 @@ export default function SetupScreen() {
     go("ble_scan", "Szukam huba w pobliżu…");
     const hasPerms = await requestBlePermissions();
     if (!hasPerms) {
-      Alert.alert("Brak uprawnień", "Zezwól na dostęp do Bluetooth i lokalizacji w ustawieniach telefonu.");
-      go("intro");
+      Alert.alert(
+        "Brak uprawnień Bluetooth",
+        "Zezwól na 'Urządzenia w pobliżu' (Bluetooth) i Lokalizację w ustawieniach aplikacji.",
+        [
+          { text: "Anuluj", style: "cancel", onPress: () => go("intro") },
+          { text: "Otwórz ustawienia", onPress: () => { Linking.openSettings(); go("intro"); } },
+        ],
+      );
       return;
     }
     const result = await scanForHub(20_000);

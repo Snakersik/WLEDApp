@@ -50,6 +50,20 @@ export interface HubGroup {
   state: HubGroupState;
 }
 
+export interface HubScanStatus {
+  running: boolean;
+  done: boolean;
+  found: Array<{ ip: string; name: string }>;
+  error: string | null;
+}
+
+export interface HubProvisionStatus {
+  running: boolean;
+  done: boolean;
+  configured: Array<{ ap: string; name: string; mac: string }>;
+  error: string | null;
+}
+
 const TIMEOUT = 4000;
 
 async function fetchWithTimeout(url: string, options?: RequestInit) {
@@ -231,6 +245,56 @@ export const HubService = {
       });
     } catch {
       // ignore — hub may be temporarily unreachable
+    }
+  },
+
+  // ── Discovery & Provisioning ──────────────────────────────
+  async startScan(ip: string): Promise<boolean> {
+    try {
+      const res = await fetchWithTimeout(`http://${ip}/api/scan-devices`, { method: "POST" });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
+  async getScanStatus(ip: string): Promise<HubScanStatus | null> {
+    try {
+      const res = await fetchWithTimeout(`http://${ip}/api/scan-status`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  },
+
+  async getWledAps(ip: string): Promise<string[]> {
+    try {
+      const res = await fetchWithTimeout(`http://${ip}/api/scan-wled`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.aps ?? [];
+    } catch {
+      return [];
+    }
+  },
+
+  async startProvision(ip: string): Promise<boolean> {
+    try {
+      const res = await fetchWithTimeout(`http://${ip}/api/provision-wled`, { method: "POST" });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
+  async getProvisionStatus(ip: string): Promise<HubProvisionStatus | null> {
+    try {
+      const res = await fetchWithTimeout(`http://${ip}/api/provision-status`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
     }
   },
 };

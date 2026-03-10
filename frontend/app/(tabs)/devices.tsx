@@ -241,6 +241,11 @@ export default function DevicesScreen() {
   const [wifiPassword, setWifiPassword] = useState("");
   const [setupProgress, setSetupProgress] = useState("");
 
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [wledAps, setWledAps] = useState<string[]>([]);
+  const [provisionStatus, setProvisionStatus] = useState("");
+  const [isHubSetup, setIsHubSetup] = useState(false);
+
   const [powerLoading, setPowerLoading] = useState<Record<string, boolean>>({});
   const [previewById, setPreviewById] = useState<Record<string, DevicePreview>>(
     {},
@@ -440,6 +445,10 @@ export default function DevicesScreen() {
     setWifiSSID("");
     setWifiPassword("");
     setSetupProgress("");
+    setWledAps([]);
+    setProvisionStatus("");
+    setIsHubSetup(false);
+    if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null; }
     WLEDDiscovery.stopMDNSScan();
   };
 
@@ -554,6 +563,83 @@ export default function DevicesScreen() {
   };
 
   const startManualMode = () => setAddMode("manual");
+
+  const startHubScan = async () => {
+    if (!hubIp) { startMDNSScan(); return; }
+    setAddMode("scan");
+    setScanning(true);
+    setDiscoveredDevices([]);
+
+    const ok = await HubService.startScan(hubIp);
+    if (!ok) { startMDNSScan(); return; }
+
+    const interval = setInterval(async () => {
+      const status = await HubService.getScanStatus(hubIp);
+      if (!status) return;
+      const mapped: DiscoveredDevice[] = status.found.map((d) => ({
+        name: d.name, ip: d.ip, host: d.ip, port: 80, fullName: d.name,
+      }));
+      setDiscoveredDevices(mapped);
+      if (status.done || !status.running) {
+        clearInterval(interval);
+        scanIntervalRef.current = null;
+        setScanning(false);
+      }
+    }, 2000);
+    scanIntervalRef.current = interval;
+  };
+
+  const startHubSetup = async () => {
+    if (!hubIp) { startSetupMode(); return; }
+    setIsHubSetup(true);
+    setAddMode("setup");
+    setSetupStep(1);
+    setAdding(true);
+    const aps = await HubService.getWledAps(hubIp);
+    setWledAps(aps);
+    setAdding(false);
+    setSetupStep(2);
+  };
+
+  const runHubProvision = async () => {
+    if (!hubIp) return;
+    setAdding(true);
+    setProvisionStatus("Provisioning...");
+    setSetupStep(3);
+
+    const ok = await HubService.startProvision(hubIp);
+    if (!ok) {
+      setAdding(false);
+      Alert.alert(t("error"), "Provision failed");
+      return;
+    }
+
+    const pInterval = setInterval(async () => {
+      const ps = await HubService.getProvisionStatus(hubIp);
+      if (!ps) return;
+      setProvisionStatus(`Configured: ${ps.configured.length}`);
+      if (ps.done || !ps.running) {
+        clearInterval(pInterval);
+        setProvisionStatus("Waiting for devices...");
+        // Hub auto-starts LAN scan after 10s — poll for results
+        setTimeout(() => {
+          const sInterval = setInterval(async () => {
+            const ss = await HubService.getScanStatus(hubIp);
+            if (!ss) return;
+            if (ss.done) {
+              clearInterval(sInterval);
+              setAdding(false);
+              closeModal();
+              for (const d of ss.found) {
+                await addDiscoveredDevice({ name: d.name, ip: d.ip, host: d.ip, port: 80, fullName: d.name });
+              }
+            }
+          }, 2000);
+          scanIntervalRef.current = sInterval;
+        }, 10000);
+      }
+    }, 2000);
+  };
 
   const handleAddDevice = async () => {
     if (!deviceName || !deviceIP) {
@@ -898,7 +984,7 @@ export default function DevicesScreen() {
                   {Platform.OS !== "web" && (
                     <TouchableOpacity
                       style={styles.methodButton}
-                      onPress={startMDNSScan}
+                      onPress={startHubScan}
                     >
                       <View style={styles.methodIcon}>
                         <Ionicons name="search" size={32} color="#818cf8" />
@@ -935,7 +1021,7 @@ export default function DevicesScreen() {
 
                   <TouchableOpacity
                     style={styles.methodButton}
-                    onPress={startSetupMode}
+                    onPress={startHubSetup}
                   >
                     <View
                       style={[
@@ -1008,7 +1094,7 @@ export default function DevicesScreen() {
                       </Text>
                       <TouchableOpacity
                         style={styles.retryButton}
-                        onPress={startMDNSScan}
+                        onPress={startHubScan}
                       >
                         <Text style={styles.retryButtonText}>
                           {t("scanNetwork")}
@@ -1058,129 +1144,199 @@ export default function DevicesScreen() {
 
               {addMode === "setup" && (
                 <View style={styles.setupMode}>
-                  <LocationSelector />
-
-                  {setupStep === 1 && (
-                    <View style={styles.setupStep}>
-                      <View style={styles.stepIndicator}>
-                        <Text style={styles.stepNumber}>1</Text>
-                      </View>
-                      <Text style={styles.setupStepTitle}>{t("step1")}</Text>
-                      <Text style={styles.setupStepDesc}>{t("step1Desc")}</Text>
-
-                      <View style={styles.wledAPBox}>
-                        <Ionicons name="wifi" size={24} color="#818cf8" />
-                        <Text style={styles.wledAPText}>{t("wledAPName")}</Text>
-                      </View>
-
-                      <Text style={styles.setupInstruction}>
-                        📱 {t("step1Desc")}
-                      </Text>
-
-                      <TouchableOpacity
-                        style={styles.setupButton}
-                        onPress={() => setSetupStep(2)}
-                      >
-                        <Text style={styles.setupButtonText}>
-                          {t("connected")}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-
-                  {setupStep === 2 && (
-                    <View style={styles.setupStep}>
-                      <View style={styles.stepIndicator}>
-                        <Text style={styles.stepNumber}>2</Text>
-                      </View>
-                      <Text style={styles.setupStepTitle}>{t("step2")}</Text>
-                      <Text style={styles.setupStepDesc}>{t("step2Desc")}</Text>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.setupButton,
-                          adding && styles.setupButtonDisabled,
-                        ]}
-                        onPress={checkAPConnection}
-                        disabled={adding}
-                      >
-                        {adding ? (
-                          <ActivityIndicator color="#fff" />
-                        ) : (
-                          <Text style={styles.setupButtonText}>
-                            {t("connected")}
+                  {isHubSetup ? (
+                    <>
+                      {/* Hub-based setup flow */}
+                      {setupStep === 1 && (
+                        <View style={styles.setupStep}>
+                          <ActivityIndicator size="large" color="#6366f1" />
+                          <Text style={[styles.setupStepTitle, { marginTop: 16 }]}>
+                            Scanning for WLED devices...
                           </Text>
-                        )}
-                      </TouchableOpacity>
+                        </View>
+                      )}
 
-                      <TouchableOpacity
-                        style={styles.backButton}
-                        onPress={() => setSetupStep(1)}
-                      >
-                        <Ionicons name="arrow-back" size={20} color="#94a3b8" />
-                        <Text style={styles.backButtonText}>{t("cancel")}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-
-                  {setupStep === 3 && (
-                    <View style={styles.setupStep}>
-                      <View style={styles.stepIndicator}>
-                        <Text style={styles.stepNumber}>3</Text>
-                      </View>
-                      <Text style={styles.setupStepTitle}>{t("step3")}</Text>
-                      <Text style={styles.setupStepDesc}>{t("step3Desc")}</Text>
-
-                      <TextInput
-                        style={styles.setupInput}
-                        placeholder={t("wifiSSID")}
-                        placeholderTextColor="#64748b"
-                        value={wifiSSID}
-                        onChangeText={setWifiSSID}
-                      />
-
-                      <TextInput
-                        style={styles.setupInput}
-                        placeholder={t("wifiPassword")}
-                        placeholderTextColor="#64748b"
-                        value={wifiPassword}
-                        onChangeText={setWifiPassword}
-                        secureTextEntry
-                      />
-
-                      <TouchableOpacity
-                        style={[
-                          styles.setupButton,
-                          adding && styles.setupButtonDisabled,
-                        ]}
-                        onPress={sendWiFiConfig}
-                        disabled={adding}
-                      >
-                        {adding ? (
-                          <ActivityIndicator color="#fff" />
-                        ) : (
-                          <Text style={styles.setupButtonText}>
-                            {t("sendConfig")}
+                      {setupStep === 2 && (
+                        <View style={styles.setupStep}>
+                          <View style={styles.stepIndicator}>
+                            <Ionicons name="wifi" size={20} color="#818cf8" />
+                          </View>
+                          <Text style={styles.setupStepTitle}>
+                            {wledAps.length > 0
+                              ? `Found ${wledAps.length} WLED device(s)`
+                              : "No WLED devices found"}
                           </Text>
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                          {wledAps.length > 0 && (
+                            <>
+                              {wledAps.map((ap, i) => (
+                                <View key={i} style={styles.discoveredDevice}>
+                                  <Ionicons name="wifi" size={24} color="#818cf8" />
+                                  <View style={styles.discoveredDeviceInfo}>
+                                    <Text style={styles.discoveredDeviceName}>{ap}</Text>
+                                    <Text style={styles.discoveredDeviceIP}>WLED Access Point</Text>
+                                  </View>
+                                </View>
+                              ))}
+                              <TouchableOpacity
+                                style={[styles.setupButton, adding && styles.setupButtonDisabled]}
+                                onPress={runHubProvision}
+                                disabled={adding}
+                              >
+                                {adding ? (
+                                  <ActivityIndicator color="#fff" />
+                                ) : (
+                                  <Text style={styles.setupButtonText}>Provision All</Text>
+                                )}
+                              </TouchableOpacity>
+                            </>
+                          )}
+                          <TouchableOpacity
+                            style={styles.backButton}
+                            onPress={() => setAddMode("select")}
+                          >
+                            <Ionicons name="arrow-back" size={20} color="#94a3b8" />
+                            <Text style={styles.backButtonText}>{t("cancel")}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
 
-                  {setupStep === 4 && (
-                    <View style={styles.setupStep}>
-                      <View style={styles.stepIndicator}>
-                        <Text style={styles.stepNumber}>4</Text>
-                      </View>
-                      <Text style={styles.setupStepTitle}>
-                        {t("waitingForDevice")}
-                      </Text>
+                      {setupStep === 3 && (
+                        <View style={styles.setupStep}>
+                          <ActivityIndicator size="large" color="#6366f1" />
+                          <Text style={[styles.setupStepTitle, { marginTop: 16 }]}>
+                            {provisionStatus}
+                          </Text>
+                        </View>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {/* Phone-based setup flow (fallback, no hub) */}
+                      <LocationSelector />
 
-                      <View style={styles.waitingContainer}>
-                        <ActivityIndicator size="large" color="#6366f1" />
-                        <Text style={styles.waitingText}>{setupProgress}</Text>
-                      </View>
-                    </View>
+                      {setupStep === 1 && (
+                        <View style={styles.setupStep}>
+                          <View style={styles.stepIndicator}>
+                            <Text style={styles.stepNumber}>1</Text>
+                          </View>
+                          <Text style={styles.setupStepTitle}>{t("step1")}</Text>
+                          <Text style={styles.setupStepDesc}>{t("step1Desc")}</Text>
+
+                          <View style={styles.wledAPBox}>
+                            <Ionicons name="wifi" size={24} color="#818cf8" />
+                            <Text style={styles.wledAPText}>{t("wledAPName")}</Text>
+                          </View>
+
+                          <Text style={styles.setupInstruction}>
+                            📱 {t("step1Desc")}
+                          </Text>
+
+                          <TouchableOpacity
+                            style={styles.setupButton}
+                            onPress={() => setSetupStep(2)}
+                          >
+                            <Text style={styles.setupButtonText}>
+                              {t("connected")}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {setupStep === 2 && (
+                        <View style={styles.setupStep}>
+                          <View style={styles.stepIndicator}>
+                            <Text style={styles.stepNumber}>2</Text>
+                          </View>
+                          <Text style={styles.setupStepTitle}>{t("step2")}</Text>
+                          <Text style={styles.setupStepDesc}>{t("step2Desc")}</Text>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.setupButton,
+                              adding && styles.setupButtonDisabled,
+                            ]}
+                            onPress={checkAPConnection}
+                            disabled={adding}
+                          >
+                            {adding ? (
+                              <ActivityIndicator color="#fff" />
+                            ) : (
+                              <Text style={styles.setupButtonText}>
+                                {t("connected")}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={styles.backButton}
+                            onPress={() => setSetupStep(1)}
+                          >
+                            <Ionicons name="arrow-back" size={20} color="#94a3b8" />
+                            <Text style={styles.backButtonText}>{t("cancel")}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {setupStep === 3 && (
+                        <View style={styles.setupStep}>
+                          <View style={styles.stepIndicator}>
+                            <Text style={styles.stepNumber}>3</Text>
+                          </View>
+                          <Text style={styles.setupStepTitle}>{t("step3")}</Text>
+                          <Text style={styles.setupStepDesc}>{t("step3Desc")}</Text>
+
+                          <TextInput
+                            style={styles.setupInput}
+                            placeholder={t("wifiSSID")}
+                            placeholderTextColor="#64748b"
+                            value={wifiSSID}
+                            onChangeText={setWifiSSID}
+                          />
+
+                          <TextInput
+                            style={styles.setupInput}
+                            placeholder={t("wifiPassword")}
+                            placeholderTextColor="#64748b"
+                            value={wifiPassword}
+                            onChangeText={setWifiPassword}
+                            secureTextEntry
+                          />
+
+                          <TouchableOpacity
+                            style={[
+                              styles.setupButton,
+                              adding && styles.setupButtonDisabled,
+                            ]}
+                            onPress={sendWiFiConfig}
+                            disabled={adding}
+                          >
+                            {adding ? (
+                              <ActivityIndicator color="#fff" />
+                            ) : (
+                              <Text style={styles.setupButtonText}>
+                                {t("sendConfig")}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {setupStep === 4 && (
+                        <View style={styles.setupStep}>
+                          <View style={styles.stepIndicator}>
+                            <Text style={styles.stepNumber}>4</Text>
+                          </View>
+                          <Text style={styles.setupStepTitle}>
+                            {t("waitingForDevice")}
+                          </Text>
+
+                          <View style={styles.waitingContainer}>
+                            <ActivityIndicator size="large" color="#6366f1" />
+                            <Text style={styles.waitingText}>{setupProgress}</Text>
+                          </View>
+                        </View>
+                      )}
+                    </>
                   )}
                 </View>
               )}
