@@ -94,6 +94,7 @@ static void ensureHubMeta() {
 #define BLE_SVC_UUID    "12340000-1234-1234-1234-123456789012"
 #define BLE_CONFIG_UUID "12340001-1234-1234-1234-123456789012"
 #define BLE_STATUS_UUID "12340002-1234-1234-1234-123456789012"
+#define BLE_META_UUID   "12340003-1234-1234-1234-123456789012"
 
 static NimBLECharacteristic* _statusChar = nullptr;
 
@@ -187,6 +188,13 @@ static void startBLE() {
     NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
   );
   _statusChar->setValue("{\"state\":\"idle\"}");
+
+  // META_CHAR — read-only, exposes hub_id + mdns_name before WiFi starts
+  // Phone reads this BEFORE sending WiFi credentials (while BLE is stable)
+  auto* metaChar = svc->createCharacteristic(BLE_META_UUID, NIMBLE_PROPERTY::READ);
+  String metaJson = "{\"hub_id\":\"" + g_hubMeta.hub_id +
+                    "\",\"mdns_name\":\"" + g_hubMeta.mdns_name + "\"}";
+  metaChar->setValue(metaJson.c_str());
 
   svc->start();
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();

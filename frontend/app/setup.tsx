@@ -216,34 +216,61 @@ export default function SetupScreen() {
     const result = await provisionHub(foundDevice, ssid.trim(), wifiPass);
     if (!isMounted.current) return;
 
+    // Helper: try mDNS probe then LAN scan
+    const findAndRegister = async (mdnsName?: string, hubId?: string) => {
+      if (mdnsName) {
+        addDebug(`Probe mDNS: ${mdnsName}.local`);
+        const mdnsOk = await waitForHubOnline(`${mdnsName}.local`, 8_000, 1_500);
+        if (mdnsOk && isMounted.current) {
+          addDebug("mDNS ok!");
+          await registerHubAt(`${mdnsName}.local`, mdnsName, hubId);
+          return;
+        }
+        addDebug("mDNS fail → LAN scan");
+      }
+      addDebug("Skan LAN start…");
+      const foundIp = await findHubOnLan(30_000);
+      addDebug(`Skan LAN: ${foundIp ?? "nie znaleziono"}`);
+      if (!isMounted.current) return;
+      if (foundIp) {
+        setHubIpInput(foundIp);
+        await registerHubAt(foundIp, mdnsName, hubId);
+      } else {
+        addDebug("Nie znaleziono — ręczny IP");
+        go("hub_ip");
+      }
+    };
+
     if (result.status === "ok") {
-      addDebug(`BLE ok — IP: ${result.ip} hub_id: ${result.hubId ?? "?"} mdns: ${result.mdnsName ?? "?"}`);
-      // Save credentials for next time
+      addDebug(`BLE ok — IP: ${result.ip} mdns: ${result.mdnsName ?? "?"}`);
       await Promise.all([
         AsyncStorage.setItem(STORAGE_SSID, ssid.trim()),
         AsyncStorage.setItem(STORAGE_PASS, wifiPass),
       ]);
-
-      // Hub restarts after provisioning — wait briefly before probing
       go("hub_wait", "Hub restartuje się i dołącza do sieci…");
       addDebug("hub_wait — czekam 3s…");
       await delay(3000);
-
-      // JSON protocol guarantees result.ip is a valid IP
       setHubIpInput(result.ip);
       await registerHubAt(result.ip, result.mdnsName, result.hubId);
+
+    } else if (result.status === "handoff") {
+      // BLE dropped when WiFi started — hub is connecting, we have mdns_name from META read
+      addDebug(`BLE handoff mdns=${result.mdnsName ?? "?"}`);
+      await Promise.all([
+        AsyncStorage.setItem(STORAGE_SSID, ssid.trim()),
+        AsyncStorage.setItem(STORAGE_PASS, wifiPass),
+      ]);
+      go("hub_lan_scan", "Hub łączy się z WiFi. Szukam go w sieci…");
+      addDebug("Czekam na boot ESP32 (~20s)…");
+      await delay(20_000);
+      await findAndRegister(result.mdnsName, result.hubId);
+
     } else if (result.message?.includes("Timeout")) {
-      addDebug(`BLE timeout — fallback LAN scan`);
-      // Hub may have connected but STATUS notify was lost — try LAN scan as fallback
+      // 25s timeout — hub connected but notify lost; likely online already
+      addDebug("BLE timeout — fallback");
       go("hub_lan_scan", "Hub mógł się połączyć z WiFi. Szukam go w sieci…");
-      const foundIp = await findHubOnLan(30_000);
-      if (!isMounted.current) return;
-      if (foundIp) {
-        setHubIpInput(foundIp);
-        await registerHubAt(foundIp);
-      } else {
-        go("hub_ip");
-      }
+      await findAndRegister(undefined, undefined);
+
     } else {
       Alert.alert("Błąd BLE", result.message, [
         { text: "Spróbuj ponownie", onPress: () => go("wifi_form") },

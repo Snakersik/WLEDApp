@@ -11,6 +11,7 @@ import NetInfo from '@react-native-community/netinfo';
 const SERVICE_UUID = '12340000-1234-1234-1234-123456789012';
 const CONFIG_CHAR  = '12340001-1234-1234-1234-123456789012';
 const STATUS_CHAR  = '12340002-1234-1234-1234-123456789012';
+const META_CHAR    = '12340003-1234-1234-1234-123456789012';
 
 const HUB_DEVICE_NAME = 'WLED-Hub';
 
@@ -62,6 +63,7 @@ export async function scanForHub(timeoutMs = 20_000): Promise<ScanResult> {
 
 export type ProvisionResult =
   | { status: 'ok'; ip: string; hubId?: string; mdnsName?: string }
+  | { status: 'handoff'; hubId?: string; mdnsName?: string }
   | { status: 'error'; message: string };
 
 /**
@@ -78,6 +80,18 @@ export async function provisionHub(
     await connected.discoverAllServicesAndCharacteristics();
     const toB64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
+    // Read hub identity BEFORE sending WiFi (BLE is stable here, no WiFi yet)
+    let bleMeta: { hub_id?: string; mdns_name?: string } = {};
+    try {
+      const metaChar = await connected.readCharacteristicForService(SERVICE_UUID, META_CHAR);
+      if (metaChar?.value) {
+        bleMeta = JSON.parse(Buffer.from(metaChar.value, 'base64').toString('utf8'));
+        console.log('BLE META:', bleMeta);
+      }
+    } catch (e) {
+      console.log('BLE META read fail (old firmware?):', e);
+    }
+
     let resolveResult!: (r: ProvisionResult) => void;
     const resultPromise = new Promise<ProvisionResult>((r) => { resolveResult = r; });
 
@@ -88,6 +102,11 @@ export async function provisionHub(
       (_err, char) => {
         if (_err) {
           console.log('BLE STATUS ERR:', _err);
+          if (!resolved) {
+            resolved = true;
+            resolveResult({ status: 'handoff', hubId: bleMeta.hub_id, mdnsName: bleMeta.mdns_name });
+          }
+          return;
         }
         if (resolved || !char?.value) return;
         try {
@@ -243,7 +262,7 @@ export async function findHubOnLan(timeoutMs = 30_000): Promise<string | null> {
     : fallbacks;
 
   const probe = (ip: string): Promise<string | null> =>
-    fetch(`http://${ip}/json/info`, { signal: AbortSignal.timeout(500) })
+    fetch(`http://${ip}/json/info`, { signal: AbortSignal.timeout(1000) })
       .then(r => r.json())
       .then((j: any) => (j?.hub_id || j?.name === 'DDP Hub' ? ip : null))
       .catch(() => null);
