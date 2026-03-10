@@ -24,6 +24,7 @@
         "backgroundColor": "#000"
       },
       "edgeToEdgeEnabled": true,
+      "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.INTERNET",
