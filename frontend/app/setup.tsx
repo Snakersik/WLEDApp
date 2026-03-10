@@ -90,8 +90,24 @@ export default function SetupScreen() {
         AsyncStorage.getItem(STORAGE_SSID),
         AsyncStorage.getItem(STORAGE_PASS),
       ]);
-      const netInfo = await NetInfo.fetch();
-      const detectedSsid = (netInfo as any)?.details?.ssid as string | undefined;
+
+      // Request location permission solely for WiFi SSID detection.
+      // This is independent of BLE — BLE works regardless of this result.
+      let detectedSsid: string | undefined;
+      if (Platform.OS === "android") {
+        await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: "Dostęp do lokalizacji",
+            message: "Potrzebny do automatycznego wykrycia nazwy sieci WiFi.",
+            buttonPositive: "Zezwól",
+            buttonNegative: "Pomiń",
+          },
+        ).catch(() => {});
+        const netInfo = await NetInfo.fetch();
+        detectedSsid = (netInfo as any)?.details?.ssid as string | undefined;
+      }
+
       if (isMounted.current) {
         setSsid(detectedSsid || savedSsid || "");
         if (savedPass) setWifiPass(savedPass);
