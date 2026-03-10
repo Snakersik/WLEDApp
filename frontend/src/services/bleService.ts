@@ -1,17 +1,22 @@
 // src/services/bleService.ts
-// BLE provisioning for WLED-Hub (boot.py on ESP32).
+// BLE provisioning for WLED-Hub (ESP32).
 // Requires: npx expo install react-native-ble-plx
 // iOS: add NSBluetoothAlwaysUsageDescription to app.json expo.ios.infoPlist
 // Android: permissions are handled automatically by the library
 
 import { BleManager, Device, BleError } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
+import NetInfo from '@react-native-community/netinfo';
 
 const SERVICE_UUID = '12340000-1234-1234-1234-123456789012';
 const CONFIG_CHAR  = '12340001-1234-1234-1234-123456789012';
 const STATUS_CHAR  = '12340002-1234-1234-1234-123456789012';
 
 const HUB_DEVICE_NAME = 'WLED-Hub';
+
+// Full IPv4 validation — rejects 999.x.x.x etc.
+const IPV4_RE =
+  /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
 let _manager: BleManager | null = null;
 
@@ -56,7 +61,7 @@ export async function scanForHub(timeoutMs = 20_000): Promise<ScanResult> {
 }
 
 export type ProvisionResult =
-  | { status: 'ok'; ip: string }
+  | { status: 'ok'; ip: string; hubId?: string; mdnsName?: string }
   | { status: 'error'; message: string };
 
 /**
@@ -76,16 +81,20 @@ export async function provisionHub(
     let resolveResult!: (r: ProvisionResult) => void;
     const resultPromise = new Promise<ProvisionResult>((r) => { resolveResult = r; });
 
-    // Subscribe to STATUS_CHAR before sending config
-    connected.monitorCharacteristicForService(
+    // resolved guard — prevents double-resolve if callback fires multiple times
+    let resolved = false;
+    const sub = connected.monitorCharacteristicForService(
       SERVICE_UUID, STATUS_CHAR,
       (_err, char) => {
-        if (!char?.value) return;
+        if (resolved || !char?.value) return;
         try {
           const json = JSON.parse(Buffer.from(char.value, 'base64').toString('utf8'));
-          if (json.state === 'success' && json.ip) {
-            resolveResult({ status: 'ok', ip: json.ip });
+          if (json.state === 'success' && json.ip && IPV4_RE.test(json.ip)) {
+            resolved = true;
+            resolveResult({ status: 'ok', ip: json.ip,
+                            hubId: json.hub_id, mdnsName: json.mdns_name });
           } else if (json.state === 'error') {
+            resolved = true;
             resolveResult({ status: 'error', message: `Hub błąd: ${json.reason ?? 'wifi_failed'}` });
           }
           // state === 'connecting' → ignore, wait for next notification
@@ -94,6 +103,9 @@ export async function provisionHub(
         }
       }
     );
+
+    // Short delay to ensure subscription is active before sending config
+    await delay(200);
 
     // Send single atomic JSON command
     const payload = JSON.stringify({ cmd: 'provision_wifi', ssid, password });
@@ -110,6 +122,7 @@ export async function provisionHub(
       })),
     ]);
 
+    try { sub.remove(); } catch {}
     try { await connected.cancelConnection(); } catch {}
     return result;
   } catch (e: any) {
@@ -120,14 +133,14 @@ export async function provisionHub(
 
 /** Wait for hub to come back online after reboot (polls /json/info). */
 export async function waitForHubOnline(
-  hubIp: string,
+  host: string,
   timeoutMs = 60_000,
   intervalMs = 2_000,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`http://${hubIp}/json/info`, { signal: AbortSignal.timeout(1_500) });
+      const res = await fetch(`http://${host}/json/info`, { signal: AbortSignal.timeout(1_500) });
       if (res.ok) return true;
     } catch {}
     await delay(intervalMs);
@@ -210,31 +223,57 @@ export async function waitForLanScan(
   return { running: false, done: true, found: [], error: 'timeout' };
 }
 
-/** Scan LAN for DDP Hub by probing /json/info in parallel across common subnets. */
+/**
+ * Scan LAN for DDP Hub by probing /json/info.
+ * Prioritises the phone's current subnet, then common fallbacks.
+ * Batches 30 requests at a time to avoid overwhelming network stack.
+ */
 export async function findHubOnLan(timeoutMs = 30_000): Promise<string | null> {
-  const subnets = ['192.168.1', '192.168.0', '192.168.10', '10.0.0'];
+  const netState = await NetInfo.fetch() as any;
+  const currentIp: string | undefined = netState?.details?.ipAddress;
+  const detectedSubnet = currentIp ? currentIp.split('.').slice(0, 3).join('.') : null;
+  const fallbacks = ['192.168.1', '192.168.0', '192.168.10', '10.0.0'];
+  const subnets = detectedSubnet
+    ? [detectedSubnet, ...fallbacks.filter(s => s !== detectedSubnet)]
+    : fallbacks;
 
   const probe = (ip: string): Promise<string | null> =>
     fetch(`http://${ip}/json/info`, { signal: AbortSignal.timeout(500) })
       .then(r => r.json())
-      .then((j: any) => (j?.name === 'DDP Hub' ? ip : null))
+      .then((j: any) => (j?.hub_id || j?.name === 'DDP Hub' ? ip : null))
       .catch(() => null);
 
-  const all: Promise<string | null>[] = [];
+  const allIps: string[] = [];
   for (const subnet of subnets) {
-    for (let i = 1; i <= 254; i++) all.push(probe(`${subnet}.${i}`));
+    for (let i = 1; i <= 254; i++) allIps.push(`${subnet}.${i}`);
   }
 
   return new Promise((resolve) => {
-    let done = false;
-    let pending = all.length;
-    const finish = (ip: string | null) => { if (!done) { done = true; resolve(ip); } };
-    all.forEach(p => p.then(ip => {
-      pending--;
-      if (ip) finish(ip);
-      else if (pending === 0) finish(null);
-    }));
+    let found = false;
+    let completed = 0;
+    const total = allIps.length;
+    const finish = (ip: string | null) => { if (!found) { found = true; resolve(ip); } };
+
+    const BATCH = 30;
+    let idx = 0;
+    const deadline = Date.now() + timeoutMs;
+
+    const runBatch = () => {
+      if (found || idx >= total || Date.now() > deadline) return;
+      const batch = allIps.slice(idx, idx + BATCH);
+      idx += BATCH;
+      batch.forEach(ip => {
+        probe(ip).then(result => {
+          completed++;
+          if (result) finish(result);
+          else if (completed === total) finish(null);
+          else if (idx < total && !found) runBatch();
+        });
+      });
+    };
+
     setTimeout(() => finish(null), timeoutMs);
+    runBatch();
   });
 }
 

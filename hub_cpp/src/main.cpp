@@ -4,7 +4,9 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
+#include <ESPmDNS.h>
 #include "config.h"
+#include "hub_meta.h"
 #include "effects.h"
 #include "scheduler.h"
 #include "webserver.h"
@@ -13,6 +15,7 @@
 std::vector<Group>  g_groups;
 std::vector<String> g_devices;
 portMUX_TYPE        g_mux = portMUX_INITIALIZER_UNLOCKED;
+HubMeta             g_hubMeta;
 
 // ── DDP packet ─────────────────────────────────────────────────
 static WiFiUDP     _udp;
@@ -55,6 +58,36 @@ static bool connectWifi() {
   if (WiFi.status() != WL_CONNECTED) { Serial.println("WiFi failed"); return false; }
   Serial.printf("WiFi OK: %s\n", WiFi.localIP().toString().c_str());
   return true;
+}
+
+// ── Hub identity (/hub.json) ───────────────────────────────────
+static void ensureHubMeta() {
+  if (LittleFS.exists("/hub.json")) {
+    File f = LittleFS.open("/hub.json", "r");
+    JsonDocument doc;
+    if (deserializeJson(doc, f) == DeserializationError::Ok) {
+      g_hubMeta.hub_id    = doc["hub_id"]    | "";
+      g_hubMeta.name      = doc["name"]      | "DDP Hub";
+      g_hubMeta.mdns_name = doc["mdns_name"] | "";
+    }
+    f.close();
+    if (g_hubMeta.hub_id.length()) return;
+  }
+  // Generate from Efuse MAC
+  uint64_t chipid = ESP.getEfuseMac();
+  char hex[13];
+  snprintf(hex, sizeof(hex), "%012llx", chipid);
+  g_hubMeta.hub_id    = String("hub_") + hex;
+  g_hubMeta.name      = "DDP Hub";
+  g_hubMeta.mdns_name = String("ddp-hub-") + String(hex + 6); // last 6 hex chars
+  JsonDocument doc;
+  doc["hub_id"]    = g_hubMeta.hub_id;
+  doc["name"]      = g_hubMeta.name;
+  doc["mdns_name"] = g_hubMeta.mdns_name;
+  File f = LittleFS.open("/hub.json", "w");
+  if (f) { serializeJson(doc, f); f.close(); }
+  Serial.printf("[HUB] ID: %s  mDNS: %s\n",
+                g_hubMeta.hub_id.c_str(), g_hubMeta.mdns_name.c_str());
 }
 
 // ── BLE provisioning ───────────────────────────────────────────
@@ -104,7 +137,10 @@ class ConfigCB : public NimBLECharacteristicCallbacks {
       char* ssid = a[0];
       char* pass = a[1];
 
+      WiFi.disconnect(true, true);
+      delay(200);
       WiFi.mode(WIFI_STA);
+      WiFi.setHostname(g_hubMeta.mdns_name.c_str());
       WiFi.begin(ssid, pass);
       free(ssid); free(pass); free(a);
 
@@ -116,7 +152,9 @@ class ConfigCB : public NimBLECharacteristicCallbacks {
         String ip = WiFi.localIP().toString();
         Serial.printf("[BLE] WiFi OK — IP: %s\n", ip.c_str());
         if (_statusChar) {
-          String msg = "{\"state\":\"success\",\"ip\":\"" + ip + "\"}";
+          String msg = "{\"state\":\"success\",\"ip\":\"" + ip +
+                       "\",\"hub_id\":\"" + g_hubMeta.hub_id +
+                       "\",\"mdns_name\":\"" + g_hubMeta.mdns_name + "\"}";
           _statusChar->setValue(msg.c_str());
           _statusChar->notify();
         }
@@ -167,6 +205,8 @@ void setup() {
     Serial.println("LittleFS mount failed");
   }
 
+  ensureHubMeta();
+
   bool wifiOk = connectWifi();
   if (!wifiOk) { startBLE(); return; } // BLE provisioning mode — don't start HTTP/DDP
 
@@ -174,6 +214,11 @@ void setup() {
   loadTzOffset();
   loadSchedules();
   if (wifiOk) ntpSync();
+
+  if (MDNS.begin(g_hubMeta.mdns_name.c_str())) {
+    MDNS.addService("http", "tcp", 80);
+    Serial.printf("[mDNS] http://%s.local\n", g_hubMeta.mdns_name.c_str());
+  }
 
   // If no groups exist, create a default group with the two kinkiety
   if (g_groups.empty()) {

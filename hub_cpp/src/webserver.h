@@ -1,5 +1,6 @@
 #pragma once
 #include "config.h"
+#include "hub_meta.h"
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
 #include <ArduinoJson.h>
@@ -48,7 +49,16 @@ void setupServer() {
   // GET /json/info
   _srv.on("/json/info", HTTP_GET, [](AsyncWebServerRequest* req) {
     JsonDocument d;
-    d["name"] = "DDP Hub"; d["ver"] = "3.0.0";
+    d["name"]      = g_hubMeta.name.length() ? g_hubMeta.name : "DDP Hub";
+    d["hub_id"]    = g_hubMeta.hub_id;
+    d["mdns_name"] = g_hubMeta.mdns_name;
+    d["ver"]       = "3.0.0";
+    d["ip"]        = WiFi.localIP().toString();
+    uint8_t mac[6]; WiFi.macAddress(mac);
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    d["mac"] = macStr;
     d["leds"]["count"] = NUM_LEDS;
     d["live"] = true;
     taskENTER_CRITICAL(&g_mux);

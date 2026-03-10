@@ -216,9 +216,13 @@ export default function SetupScreen() {
         AsyncStorage.setItem(STORAGE_PASS, wifiPass),
       ]);
 
+      // Hub restarts after provisioning — wait briefly before probing
+      go("hub_wait", "Hub restartuje się i dołącza do sieci…");
+      await delay(3000);
+
       // JSON protocol guarantees result.ip is a valid IP
       setHubIpInput(result.ip);
-      await registerHubAt(result.ip);
+      await registerHubAt(result.ip, result.mdnsName, result.hubId);
     } else if (result.message?.includes("Timeout")) {
       // Hub may have connected but STATUS notify was lost — try LAN scan as fallback
       go("hub_lan_scan", "Hub mógł się połączyć z WiFi. Szukam go w sieci…");
@@ -238,29 +242,55 @@ export default function SetupScreen() {
   }, [foundDevice, ssid, wifiPass, go]);
 
   // ── Register hub in backend (core logic) ─────────────────────
-  const registerHubAt = useCallback(async (ip: string) => {
+  const registerHubAt = useCallback(async (
+    ip: string,
+    mdnsName?: string,
+    hubId?: string,
+  ) => {
     go("hub_register", "Sprawdzam połączenie z hubem…");
 
-    const online = await waitForHubOnline(ip, 15_000, 1_500);
+    // 1. Try IP directly
+    let effectiveHost = ip;
+    let online = await waitForHubOnline(ip, 15_000, 1_500);
+
+    // 2. Try mDNS .local if IP failed
+    if (!online && mdnsName) {
+      effectiveHost = `${mdnsName}.local`;
+      online = await waitForHubOnline(effectiveHost, 10_000, 1_500);
+    }
+
     if (!online) {
       Alert.alert(
         "Hub niedostępny",
-        `Nie można połączyć z http://${ip}/json/info\nUpewnij się, że hub jest w tej samej sieci i adres IP jest poprawny.`,
+        `Nie można połączyć z hubem.\nSprawdź czy hub jest w tej samej sieci WiFi.`,
         [{ text: "Wróć", onPress: () => go("hub_ip") }],
       );
       return;
     }
 
+    // Fetch /json/info to get firmware version
+    let firmwareVer: string | undefined;
+    try {
+      const info = await fetch(`http://${effectiveHost}/json/info`).then(r => r.json());
+      firmwareVer = info?.ver;
+    } catch {}
+
     try {
       await axios.post(
         `${API_URL}/hubs`,
-        { name: hubName.trim() || "Mój Hub", ip_address: ip },
+        {
+          name: hubName.trim() || "Mój Hub",
+          ip_address: effectiveHost,
+          hub_id: hubId,
+          mdns_name: mdnsName,
+          firmware_version: firmwareVer,
+        },
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      setRegisteredHubIp(ip);
+      setRegisteredHubIp(effectiveHost);
       await refreshHub();
       go("wled_scan", "Hub zarejestrowany! Szukam urządzeń WLED…");
-      await startWledScan(ip);
+      await startWledScan(effectiveHost);
     } catch (e: any) {
       Alert.alert("Błąd rejestracji", e?.response?.data?.detail ?? e?.message ?? "Nieznany błąd");
       go("hub_ip");
