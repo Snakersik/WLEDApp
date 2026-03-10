@@ -27,11 +27,11 @@ async function requestBlePermissions(): Promise<boolean> {
   const sdk = Platform.Version as number;
 
   if (sdk >= 31) {
-    // Android 12+ (API 31+): BLUETOOTH_SCAN + BLUETOOTH_CONNECT are runtime permissions
+    // Android 12+ (API 31+): BLUETOOTH_SCAN + BLUETOOTH_CONNECT are sufficient for BLE
+    // ACCESS_FINE_LOCATION is NOT required when manifest uses neverForLocation flag
     const perms = [
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
     ];
     // Check first — if already granted, skip the dialog
     const checks = await Promise.all(perms.map((p) => PermissionsAndroid.check(p)));
@@ -129,7 +129,7 @@ export default function SetupScreen() {
     if (!hasPerms) {
       Alert.alert(
         "Brak uprawnień Bluetooth",
-        "Zezwól na 'Urządzenia w pobliżu' (Bluetooth) i Lokalizację w ustawieniach aplikacji.",
+        "Zezwól na 'Urządzenia w pobliżu' (Bluetooth) w ustawieniach aplikacji.",
         [
           { text: "Anuluj", style: "cancel", onPress: () => go("intro") },
           { text: "Otwórz ustawienia", onPress: () => { Linking.openSettings(); go("intro"); } },
