@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 import {
   View,
   Text,
@@ -7,198 +7,311 @@ import {
   Alert,
   ScrollView,
   Modal,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../src/context/AuthContext';
-import { useLanguage, Language } from '../../src/context/LanguageContext';
-import { useRouter } from 'expo-router';
+  Platform,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 
+import { useAuth } from "../../src/context/AuthContext";
+import { useLanguage, Language } from "../../src/context/LanguageContext";
+import { useSubscription } from "../../src/billing/SubscriptionContext";
+import {
+  presentPaywallSafe,
+  presentCustomerCenterSafe,
+} from "../../src/billing/revenuecat";
+import { C, R } from "../../src/ui/theme";
+import { TAB_SAFE_BOTTOM } from "./_layout";
+
+// ── Reusable row item ────────────────────────────────────────────────────────
+function SettingsRow({
+  icon,
+  label,
+  value,
+  onPress,
+  destructive,
+  rightElement,
+}: {
+  icon: string;
+  label: string;
+  value?: string;
+  onPress?: () => void;
+  destructive?: boolean;
+  rightElement?: React.ReactNode;
+}) {
+  return (
+    <TouchableOpacity
+      style={s.row}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.65 : 1}
+      disabled={!onPress}
+    >
+      <View style={[s.rowIcon, destructive && s.rowIconDestructive]}>
+        <Ionicons
+          name={icon as any}
+          size={20}
+          color={destructive ? C.red : C.primary2}
+        />
+      </View>
+      <View style={s.rowBody}>
+        <Text style={[s.rowLabel, destructive && { color: C.red }]}>{label}</Text>
+        {value ? <Text style={s.rowValue}>{value}</Text> : null}
+      </View>
+      {rightElement ?? (
+        onPress && !destructive
+          ? <Ionicons name="chevron-forward" size={16} color={C.text3} />
+          : null
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ── Section wrapper ───────────────────────────────────────────────────────────
+function Section({ title, children }: { title?: string; children: React.ReactNode }) {
+  return (
+    <View style={s.section}>
+      {title ? <Text style={s.sectionTitle}>{title}</Text> : null}
+      <View style={s.sectionCard}>{children}</View>
+    </View>
+  );
+}
+
+// ── Main screen ───────────────────────────────────────────────────────────────
 export default function ProfileScreen() {
-  const { user, logout, upgradeSubscription } = useAuth();
+  const { user, logout, refreshMe } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
-  const [languageModalVisible, setLanguageModalVisible] = React.useState(false);
+  const [langModal, setLangModal] = React.useState(false);
 
+  const { pro, refresh: refreshRc } = useSubscription();
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
   const handleLogout = () => {
+    if (Platform.OS === "web") {
+      const ok = (globalThis as any)?.confirm?.(String(t("logoutConfirm") ?? "Are you sure?"));
+      if (!ok) return;
+      logout().then(() => router.replace("/(auth)/login")).catch(console.error);
+      return;
+    }
     Alert.alert(
-      t('logout'),
-      t('logoutConfirm'),
+      String(t("logout") ?? "Logout"),
+      String(t("logoutConfirm") ?? "Are you sure?"),
       [
-        { text: t('cancel'), style: 'cancel' },
+        { text: String(t("cancel") ?? "Cancel"), style: "cancel" },
         {
-          text: t('logout'),
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            router.replace('/(auth)/login');
-          },
+          text: String(t("logout") ?? "Logout"),
+          style: "destructive",
+          onPress: () =>
+            logout().then(() => router.replace("/(auth)/login")).catch(console.error),
         },
-      ]
+      ],
+      { cancelable: true },
     );
   };
 
-  const handleUpgradeSubscription = () => {
+  const handleUpgrade = () => {
     Alert.alert(
-      t('upgradeToPremiumTitle'),
-      t('upgradeToPremiumDesc'),
+      String(t("upgradeToPremiumTitle") ?? "Upgrade to PRO"),
+      String(t("upgradeToPremiumDesc") ?? "Unlock all presets and features"),
       [
-        { text: t('cancel'), style: 'cancel' },
+        { text: String(t("cancel") ?? "Cancel"), style: "cancel" },
         {
-          text: t('upgrade'),
+          text: String(t("upgrade") ?? "Upgrade"),
           onPress: async () => {
             try {
-              await upgradeSubscription();
-              Alert.alert(t('success'), t('subscriptionActivated'));
-            } catch (error: any) {
-              Alert.alert(t('error'), error.message);
+              const res = await presentPaywallSafe();
+              await refreshRc();
+              await refreshMe();
+              if (res.pro) Alert.alert("PRO ✅", "Welcome to Pro!");
+            } catch (e: any) {
+              Alert.alert(String(t("error") ?? "Error"), String(e?.message ?? "Purchase failed"));
             }
           },
         },
-      ]
+      ],
     );
   };
 
-  const handleLanguageSelect = async (lang: Language) => {
-    await setLanguage(lang);
-    setLanguageModalVisible(false);
-    Alert.alert(t('success'), t('languageChanged'));
-  };
-
-  const getLanguageName = (lang: Language) => {
-    switch (lang) {
-      case 'pl': return t('polish');
-      case 'en': return t('english');
-      case 'de': return t('german');
+  const handleManageSub = async () => {
+    try {
+      await presentCustomerCenterSafe();
+      await refreshRc();
+      await refreshMe();
+    } catch (e: any) {
+      Alert.alert(String(t("error") ?? "Error"), String(e?.message ?? "Failed"));
     }
   };
 
+  const handleLangSelect = async (lang: Language) => {
+    await setLanguage(lang);
+    setLangModal(false);
+  };
+
+  const langName = (lang: Language) => {
+    switch (lang) {
+      case "pl": return t("polish");
+      case "en": return t("english");
+      case "de": return t("german");
+      default:   return String(lang);
+    }
+  };
+
+  const initials = user?.name
+    ? user.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()
+    : "?";
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView>
-        <View style={styles.header}>
-          <Text style={styles.title}>{t('profile')}</Text>
+    <SafeAreaView style={s.container} edges={["top"]}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: TAB_SAFE_BOTTOM + 16 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Page title ── */}
+        <View style={s.header}>
+          <Text style={s.pageTitle}>{t("profile") ?? "Profile"}</Text>
         </View>
 
-        <View style={styles.profileSection}>
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Ionicons name="person" size={48} color="#f1f5f9" />
+        {/* ── Avatar + name ── */}
+        <View style={s.heroSection}>
+          <View style={s.avatarRing}>
+            <View style={s.avatar}>
+              <Text style={s.avatarText}>{initials}</Text>
             </View>
           </View>
-          <Text style={styles.userName}>{user?.name}</Text>
-          <Text style={styles.userEmail}>{user?.email}</Text>
-        </View>
 
-        {/* Language Selection */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('language')}</Text>
-          <TouchableOpacity
-            style={styles.languageCard}
-            onPress={() => setLanguageModalVisible(true)}
-          >
-            <View style={styles.languageHeader}>
-              <Ionicons name="language" size={32} color="#818cf8" />
-              <View style={styles.languageInfo}>
-                <Text style={styles.languageTitle}>{t('selectLanguage')}</Text>
-                <Text style={styles.languageText}>{getLanguageName(language)}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={24} color="#64748b" />
-            </View>
-          </TouchableOpacity>
-        </View>
+          <View style={s.heroInfo}>
+            <Text style={s.heroName}>{user?.name ?? "—"}</Text>
+            <Text style={s.heroEmail}>{user?.email ?? ""}</Text>
+          </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('subscription')}</Text>
-          {user?.has_subscription ? (
-            <View style={styles.subscriptionCard}>
-              <View style={styles.subscriptionHeader}>
-                <Ionicons name="star" size={32} color="#fbbf24" />
-                <View style={styles.subscriptionInfo}>
-                  <Text style={styles.subscriptionTitle}>{t('premiumActive')}</Text>
-                  <Text style={styles.subscriptionText}>{t('accessToAllPresets')}</Text>
-                </View>
-                <Ionicons name="checkmark-circle" size={28} color="#10b981" />
-              </View>
+          {/* PRO / Free badge */}
+          {pro ? (
+            <View style={s.proBadge}>
+              <Ionicons name="star" size={12} color="#FDE68A" />
+              <Text style={s.proBadgeText}>PRO</Text>
             </View>
           ) : (
-            <TouchableOpacity 
-              style={styles.upgradeCard}
-              onPress={handleUpgradeSubscription}
-            >
-              <View style={styles.upgradeHeader}>
-                <Ionicons name="star-outline" size={32} color="#f59e0b" />
-                <View style={styles.upgradeInfo}>
-                  <Text style={styles.upgradeTitle}>{t('upgradeToPremium')}</Text>
-                  <Text style={styles.upgradeText}>{t('unlockAllPresets')}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={24} color="#64748b" />
-              </View>
-            </TouchableOpacity>
+            <View style={s.freeBadge}>
+              <Text style={s.freeBadgeText}>FREE</Text>
+            </View>
           )}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('about')}</Text>
-          <View style={styles.infoCard}>
-            <View style={styles.infoRow}>
-              <Ionicons name="information-circle-outline" size={24} color="#818cf8" />
-              <Text style={styles.infoText}>{t('version')}</Text>
+        {/* ── Subscription ── */}
+        {pro ? (
+          <Section title={t("subscription") ?? "Subscription"}>
+            <View style={s.proCard}>
+              <View style={s.proCardLeft}>
+                <View style={s.proIconWrap}>
+                  <Ionicons name="star" size={22} color="#FDE68A" />
+                </View>
+                <View>
+                  <Text style={s.proCardTitle}>{t("premiumActive") ?? "Premium Active"}</Text>
+                  <Text style={s.proCardSub}>{t("accessToAllPresets") ?? "All presets unlocked"}</Text>
+                </View>
+              </View>
+              <Ionicons name="checkmark-circle" size={22} color={C.green} />
             </View>
-            <View style={styles.infoRow}>
-              <Ionicons name="bulb-outline" size={24} color="#818cf8" />
-              <Text style={styles.infoText}>{t('controlYourDevices')}</Text>
+            <View style={s.separator} />
+            <SettingsRow
+              icon="settings-outline"
+              label="Manage subscription"
+              onPress={handleManageSub}
+            />
+          </Section>
+        ) : (
+          <TouchableOpacity style={s.upgradeCard} onPress={handleUpgrade} activeOpacity={0.8}>
+            <View style={s.upgradeLeft}>
+              <View style={s.upgradeIconWrap}>
+                <Ionicons name="star" size={22} color={C.amber} />
+              </View>
+              <View>
+                <Text style={s.upgradeTitle}>{t("upgradeToPremium") ?? "Upgrade to PRO"}</Text>
+                <Text style={s.upgradeSub}>{t("unlockAllPresets") ?? "Unlock all lighting presets"}</Text>
+              </View>
             </View>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={24} color="#ef4444" />
-            <Text style={styles.logoutText}>{t('logout')}</Text>
+            <View style={s.upgradeArrow}>
+              <Ionicons name="chevron-forward" size={16} color={C.amber} />
+            </View>
           </TouchableOpacity>
-        </View>
+        )}
+
+        {/* ── Preferences ── */}
+        <Section title="Preferences">
+          <SettingsRow
+            icon="language-outline"
+            label={t("language") ?? "Language"}
+            value={String(langName(language))}
+            onPress={() => setLangModal(true)}
+          />
+          <View style={s.separator} />
+          <SettingsRow
+            icon="hardware-chip-outline"
+            label="Hub Setup"
+            value="Configure your hub"
+            onPress={() => router.push("/setup")}
+          />
+        </Section>
+
+        {/* ── About ── */}
+        <Section title={t("about") ?? "About"}>
+          <SettingsRow
+            icon="information-circle-outline"
+            label={t("version") ?? "Version"}
+            value="1.0.0"
+          />
+          <View style={s.separator} />
+          <SettingsRow
+            icon="bulb-outline"
+            label={t("controlYourDevices") ?? "WLED Smart Lights"}
+          />
+        </Section>
+
+        {/* ── Logout ── */}
+        <Section>
+          <SettingsRow
+            icon="log-out-outline"
+            label={t("logout") ?? "Logout"}
+            onPress={handleLogout}
+            destructive
+          />
+        </Section>
       </ScrollView>
 
-      {/* Language Selection Modal */}
+      {/* ── Language modal ── */}
       <Modal
-        visible={languageModalVisible}
+        visible={langModal}
         animationType="slide"
         transparent
-        onRequestClose={() => setLanguageModalVisible(false)}
+        onRequestClose={() => setLangModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{t('selectLanguage')}</Text>
-              <TouchableOpacity onPress={() => setLanguageModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#94a3b8" />
+        <View style={s.modalBackdrop}>
+          <View style={s.modalCard}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>{t("selectLanguage") ?? "Language"}</Text>
+              <TouchableOpacity style={s.modalClose} onPress={() => setLangModal(false)}>
+                <Ionicons name="close" size={18} color={C.text2} />
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={[styles.languageOption, language === 'pl' && styles.languageOptionSelected]}
-              onPress={() => handleLanguageSelect('pl')}
-            >
-              <Text style={styles.languageOptionText}>🇵🇱 {t('polish')}</Text>
-              {language === 'pl' && <Ionicons name="checkmark" size={24} color="#6366f1" />}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.languageOption, language === 'en' && styles.languageOptionSelected]}
-              onPress={() => handleLanguageSelect('en')}
-            >
-              <Text style={styles.languageOptionText}>🇬🇧 {t('english')}</Text>
-              {language === 'en' && <Ionicons name="checkmark" size={24} color="#6366f1" />}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.languageOption, language === 'de' && styles.languageOptionSelected]}
-              onPress={() => handleLanguageSelect('de')}
-            >
-              <Text style={styles.languageOptionText}>🇩🇪 {t('german')}</Text>
-              {language === 'de' && <Ionicons name="checkmark" size={24} color="#6366f1" />}
-            </TouchableOpacity>
+            {(["en", "pl", "de"] as Language[]).map((lang) => {
+              const flag = lang === "en" ? "🇬🇧" : lang === "pl" ? "🇵🇱" : "🇩🇪";
+              const active = language === lang;
+              return (
+                <TouchableOpacity
+                  key={lang}
+                  style={[s.langOption, active && s.langOptionActive]}
+                  onPress={() => handleLangSelect(lang)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={s.langFlag}>{flag}</Text>
+                  <Text style={[s.langLabel, active && { color: C.text }]}>
+                    {String(langName(lang))}
+                  </Text>
+                  {active && <Ionicons name="checkmark-circle" size={20} color={C.primary} style={{ marginLeft: "auto" }} />}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
       </Modal>
@@ -206,205 +319,200 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0f172a',
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.bg },
+
+  header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
+  pageTitle: { fontSize: 28, fontWeight: "900", color: C.text, letterSpacing: 0.2 },
+
+  // ── Hero ─────────────────────────────────────────────────────────────────
+  heroSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 20,
+    backgroundColor: C.bgCard,
+    borderRadius: R.xl,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 16,
   },
-  header: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#f1f5f9',
-  },
-  profileSection: {
-    alignItems: 'center',
-    padding: 32,
-  },
-  avatarContainer: {
-    marginBottom: 16,
+  avatarRing: {
+    width: 58, height: 58,
+    borderRadius: 29,
+    borderWidth: 2,
+    borderColor: C.primary,
+    padding: 2,
   },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#334155',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#475569',
-  },
-  userName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#f1f5f9',
-    marginBottom: 4,
-  },
-  userEmail: {
-    fontSize: 16,
-    color: '#94a3b8',
-  },
-  section: {
-    padding: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#f1f5f9',
-    marginBottom: 12,
-  },
-  languageCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  languageHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  languageInfo: {
     flex: 1,
-    marginLeft: 16,
+    borderRadius: 27,
+    backgroundColor: "rgba(99,102,241,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  languageTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#f1f5f9',
-    marginBottom: 4,
-  },
-  languageText: {
-    fontSize: 14,
-    color: '#94a3b8',
-  },
-  subscriptionCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 20,
+  avatarText: { fontSize: 20, fontWeight: "900", color: C.primary2 },
+
+  heroInfo:  { flex: 1 },
+  heroName:  { fontSize: 16, fontWeight: "800", color: C.text, letterSpacing: 0.1 },
+  heroEmail: { fontSize: 12, color: C.text2, marginTop: 2, fontWeight: "600" },
+
+  proBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(245,158,11,0.15)",
+    borderRadius: R.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderWidth: 1,
-    borderColor: '#10b981',
+    borderColor: "rgba(245,158,11,0.4)",
   },
-  subscriptionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  proBadgeText: { color: "#FDE68A", fontWeight: "900", fontSize: 11, letterSpacing: 0.5 },
+
+  freeBadge: {
+    backgroundColor: C.bgCard2,
+    borderRadius: R.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: C.border,
   },
-  subscriptionInfo: {
-    flex: 1,
-    marginLeft: 16,
+  freeBadgeText: { color: C.text3, fontWeight: "800", fontSize: 11, letterSpacing: 0.5 },
+
+  // ── Pro card ───────────────────────────────────────────────────────────
+  proCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 4,
   },
-  subscriptionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#f1f5f9',
-    marginBottom: 4,
+  proCardLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  proIconWrap: {
+    width: 40, height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(245,158,11,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  subscriptionText: {
-    fontSize: 14,
-    color: '#94a3b8',
-  },
+  proCardTitle: { fontSize: 15, fontWeight: "800", color: C.text },
+  proCardSub:   { fontSize: 12, color: C.text2, marginTop: 2, fontWeight: "600" },
+
+  // ── Upgrade card ───────────────────────────────────────────────────────
   upgradeCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 20,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    backgroundColor: "rgba(245,158,11,0.08)",
+    borderRadius: R.xl,
     borderWidth: 1,
-    borderColor: '#f59e0b',
-  },
-  upgradeHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  upgradeInfo: {
-    flex: 1,
-    marginLeft: 16,
-  },
-  upgradeTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#f1f5f9',
-    marginBottom: 4,
-  },
-  upgradeText: {
-    fontSize: 14,
-    color: '#94a3b8',
-  },
-  infoCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  infoText: {
-    fontSize: 16,
-    color: '#94a3b8',
-    marginLeft: 12,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
+    borderColor: "rgba(245,158,11,0.35)",
     padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  upgradeLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+  upgradeIconWrap: {
+    width: 44, height: 44,
+    borderRadius: 14,
+    backgroundColor: "rgba(245,158,11,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  upgradeTitle: { fontSize: 15, fontWeight: "900", color: C.amber },
+  upgradeSub:   { fontSize: 12, color: C.text2, marginTop: 2, fontWeight: "600" },
+  upgradeArrow: {
+    width: 30, height: 30,
+    borderRadius: 10,
+    backgroundColor: "rgba(245,158,11,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // ── Section ────────────────────────────────────────────────────────────
+  section:      { marginHorizontal: 16, marginBottom: 16 },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: C.text3,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  sectionCard: {
+    backgroundColor: C.bgCard,
+    borderRadius: R.xl,
     borderWidth: 1,
-    borderColor: '#991b1b',
+    borderColor: C.border,
+    overflow: "hidden",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
   },
-  logoutText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ef4444',
-    marginLeft: 8,
+  separator: { height: 1, backgroundColor: C.border, marginHorizontal: -16 },
+
+  // ── Settings row ───────────────────────────────────────────────────────
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    gap: 12,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'flex-end',
+  rowIcon: {
+    width: 36, height: 36,
+    borderRadius: 10,
+    backgroundColor: "rgba(99,102,241,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  modalContent: {
-    backgroundColor: '#1e293b',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
+  rowIconDestructive: { backgroundColor: "rgba(239,68,68,0.12)" },
+  rowBody:  { flex: 1 },
+  rowLabel: { fontSize: 14, fontWeight: "700", color: C.text },
+  rowValue: { fontSize: 12, color: C.text2, marginTop: 2, fontWeight: "600" },
+
+  // ── Language modal ─────────────────────────────────────────────────────
+  modalBackdrop: { flex: 1, backgroundColor: C.bgOverlay, justifyContent: "flex-end", padding: 16 },
+  modalCard: {
+    backgroundColor: "#090916",
+    borderRadius: R.xxl,
+    borderWidth: 1,
+    borderColor: C.borderMd,
+    padding: 20,
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
   },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#f1f5f9',
-  },
-  languageOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#0f172a',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 12,
+  modalTitle: { color: C.text, fontSize: 17, fontWeight: "800" },
+  modalClose: {
+    width: 32, height: 32,
+    borderRadius: 10,
+    backgroundColor: C.bgCard,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: C.border,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  languageOptionSelected: {
-    borderColor: '#6366f1',
-    backgroundColor: '#312e81',
+
+  langOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: R.lg,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
-  languageOptionText: {
-    fontSize: 18,
-    color: '#f1f5f9',
-    fontWeight: '600',
+  langOptionActive: {
+    backgroundColor: "rgba(99,102,241,0.12)",
+    borderColor: "rgba(99,102,241,0.35)",
   },
+  langFlag:  { fontSize: 22 },
+  langLabel: { fontSize: 15, fontWeight: "700", color: C.text2 },
 });

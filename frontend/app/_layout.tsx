@@ -1,19 +1,23 @@
-import { Stack } from 'expo-router';
-import React from 'react';
-import { AuthProvider } from '../src/context/AuthContext';
-import { LanguageProvider } from '../src/context/LanguageContext';
+import { Stack } from "expo-router";
+import React from "react";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { AuthProvider } from "../src/context/AuthContext";
+import { LanguageProvider } from "../src/context/LanguageContext";
+import { SubscriptionProvider } from "../src/billing/SubscriptionContext";
+import { HubProvider } from "../src/context/HubContext";
 
 export default function RootLayout() {
   return (
-    <LanguageProvider>
-      <AuthProvider>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="(auth)/login" />
-          <Stack.Screen name="(auth)/register" />
-          <Stack.Screen name="(tabs)" />
-        </Stack>
-      </AuthProvider>
-    </LanguageProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <LanguageProvider>
+        <AuthProvider>
+          <SubscriptionProvider>
+            <HubProvider>
+              <Stack screenOptions={{ headerShown: false }} />
+            </HubProvider>
+          </SubscriptionProvider>
+        </AuthProvider>
+      </LanguageProvider>
+    </GestureHandlerRootView>
   );
 }
