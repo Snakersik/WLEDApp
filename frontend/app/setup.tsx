@@ -27,7 +27,6 @@ import { useAuth } from "../src/context/AuthContext";
 import { useHub }  from "../src/context/HubContext";
 import {
   destroyBleManager,
-  findHubOnLan,
   provisionHub,
   scanForHub,
   scanForWledAps,
@@ -180,25 +179,9 @@ export default function SetupScreen() {
         AsyncStorage.setItem(STORAGE_SSID, ssid.trim()),
         AsyncStorage.setItem(STORAGE_PASS, wifiPass),
       ]);
-
-      go("hub_wait", "Hub zapisał dane WiFi i restartuje się…");
-      await delay(10_000); // give hub time to reboot and connect
-
-      go("hub_lan_scan", "Szukam huba w sieci lokalnej…");
-      const foundIp = await findHubOnLan(30_000);
-      if (!isMounted.current) return;
-
-      if (foundIp) {
-        setHubIpInput(foundIp);
-        await registerHubAt(foundIp);
-      } else {
-        Alert.alert(
-          "Nie znaleziono huba",
-          "Hub nie odpowiada w sieci. Wpisz adres IP ręcznie (sprawdź panel routera).",
-          [{ text: "OK" }],
-        );
-        go("hub_ip");
-      }
+      // IP received directly from hub via BLE — no LAN scan needed
+      setHubIpInput(result.ip);
+      await registerHubAt(result.ip);
     } else {
       Alert.alert("Błąd BLE", result.message, [
         { text: "Spróbuj ponownie", onPress: () => go("wifi_form") },

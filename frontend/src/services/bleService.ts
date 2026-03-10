@@ -7,11 +7,10 @@
 import { BleManager, Device, BleError } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
 
-// Must match UUIDs in hub/boot.py
 const SERVICE_UUID = '12340000-1234-1234-1234-123456789012';
 const SSID_CHAR    = '12340001-1234-1234-1234-123456789012';
 const PASS_CHAR    = '12340002-1234-1234-1234-123456789012';
-const DONE_CHAR    = '12340003-1234-1234-1234-123456789012';
+const IP_CHAR      = '12340003-1234-1234-1234-123456789012';
 
 const HUB_DEVICE_NAME = 'WLED-Hub';
 
@@ -58,12 +57,12 @@ export async function scanForHub(timeoutMs = 20_000): Promise<ScanResult> {
 }
 
 export type ProvisionResult =
-  | { status: 'ok' }
+  | { status: 'ok'; ip: string }
   | { status: 'error'; message: string };
 
 /**
- * Connect to hub via BLE and send WiFi credentials.
- * Hub will save them to wifi.json and reboot.
+ * Connect to hub via BLE, send WiFi credentials, wait for hub to connect
+ * and send back its IP address via characteristic 12340003 (notify).
  */
 export async function provisionHub(
   device: Device,
@@ -73,37 +72,43 @@ export async function provisionHub(
   try {
     const connected = await device.connect({ timeout: 10_000 });
     await connected.discoverAllServicesAndCharacteristics();
-
     const toB64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
-    // Write SSID
-    await connected.writeCharacteristicWithResponseForService(
-      SERVICE_UUID,
-      SSID_CHAR,
-      toB64(ssid),
+    // Subscribe to IP notification BEFORE sending credentials
+    let resolveIp!: (ip: string) => void;
+    const ipPromise = new Promise<string>((r) => { resolveIp = r; });
+
+    connected.monitorCharacteristicForService(
+      SERVICE_UUID, IP_CHAR,
+      (_err, char) => {
+        if (char?.value) {
+          const ip = Buffer.from(char.value, 'base64').toString('utf8');
+          resolveIp(ip);
+        }
+      }
     );
 
-    // Write password
-    await connected.writeCharacteristicWithResponseForService(
-      SERVICE_UUID,
-      PASS_CHAR,
-      toB64(password),
-    );
+    // Send SSID then PASS — hub will connect to WiFi and notify IP
+    await connected.writeCharacteristicWithResponseForService(SERVICE_UUID, SSID_CHAR, toB64(ssid));
+    await connected.writeCharacteristicWithResponseForService(SERVICE_UUID, PASS_CHAR, toB64(password));
 
-    // Wait a moment for hub to process and notify
-    await delay(1_200);
+    // Wait up to 20s for hub to connect to WiFi and send IP back
+    const ip = await Promise.race([
+      ipPromise,
+      delay(20_000).then(() => 'TIMEOUT'),
+    ]);
 
-    try {
-      await connected.cancelConnection();
-    } catch {
-      // ignore — hub may have rebooted and closed the connection already
+    try { await connected.cancelConnection(); } catch {}
+
+    if (ip === 'TIMEOUT') {
+      return { status: 'error', message: 'Hub nie odpowiedział w czasie — sprawdź hasło WiFi' };
     }
-
-    return { status: 'ok' };
+    if (ip === 'ERROR') {
+      return { status: 'error', message: 'Hub nie połączył się z WiFi — sprawdź SSID i hasło' };
+    }
+    return { status: 'ok', ip };
   } catch (e: any) {
-    try {
-      await device.cancelConnection();
-    } catch {}
+    try { await device.cancelConnection(); } catch {}
     return { status: 'error', message: e?.message ?? 'BLE error' };
   }
 }

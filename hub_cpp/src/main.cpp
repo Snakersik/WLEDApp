@@ -62,8 +62,10 @@ static bool connectWifi() {
 #define BLE_SVC_UUID  "12340000-1234-1234-1234-123456789012"
 #define BLE_SSID_UUID "12340001-1234-1234-1234-123456789012"
 #define BLE_PASS_UUID "12340002-1234-1234-1234-123456789012"
+#define BLE_IP_UUID   "12340003-1234-1234-1234-123456789012"
 
 static String _bleSsid, _blePass;
+static NimBLECharacteristic* _ipChar = nullptr;
 
 static String b64decode(const std::string& input) {
   size_t olen = 0;
@@ -84,16 +86,43 @@ class PassCB : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c) override {
     _blePass = b64decode(c->getValue());
     Serial.println("[BLE] PASS received — saving wifi.json");
-    if (_bleSsid.length()) {
-      JsonDocument doc;
-      doc["ssid"] = _bleSsid;
-      doc["password"] = _blePass;
-      File f = LittleFS.open("/wifi.json", "w");
-      if (f) { serializeJson(doc, f); f.close(); }
-      Serial.println("[BLE] Rebooting...");
-      delay(500);
-      ESP.restart();
+    if (!_bleSsid.length()) return;
+
+    // Save wifi.json
+    JsonDocument doc;
+    doc["ssid"] = _bleSsid;
+    doc["password"] = _blePass;
+    File f = LittleFS.open("/wifi.json", "w");
+    if (f) { serializeJson(doc, f); f.close(); }
+
+    // Connect to WiFi and send IP back via BLE before restarting
+    Serial.printf("[BLE] Connecting to WiFi: %s\n", _bleSsid.c_str());
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(_bleSsid.c_str(), _blePass.c_str());
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+      delay(200);
     }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      String ip = WiFi.localIP().toString();
+      Serial.printf("[BLE] WiFi OK — IP: %s\n", ip.c_str());
+      if (_ipChar) {
+        _ipChar->setValue(ip.c_str());
+        _ipChar->notify();
+      }
+      delay(2000); // give BLE time to deliver notify
+    } else {
+      Serial.println("[BLE] WiFi failed — notifying ERROR");
+      if (_ipChar) {
+        _ipChar->setValue("ERROR");
+        _ipChar->notify();
+      }
+      delay(500);
+    }
+
+    Serial.println("[BLE] Rebooting...");
+    ESP.restart();
   }
 };
 
@@ -107,6 +136,12 @@ static void startBLE() {
 
   auto* passChar = svc->createCharacteristic(BLE_PASS_UUID, NIMBLE_PROPERTY::WRITE);
   passChar->setCallbacks(new PassCB());
+
+  _ipChar = svc->createCharacteristic(
+    BLE_IP_UUID,
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+  );
+  _ipChar->setValue("");
 
   svc->start();
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
