@@ -35,10 +35,12 @@ jobs:
         working-directory: frontend
         run: yarn install --frozen-lockfile || yarn install
 
+      - name: Create .env file
+        working-directory: frontend
+        run: echo "EXPO_PUBLIC_BACKEND_URL=${{ github.event.inputs.backend_url }}" > .env
+
       - name: Expo Prebuild (Android only)
         working-directory: frontend
-        env:
-          EXPO_PUBLIC_BACKEND_URL: ${{ github.event.inputs.backend_url }}
         run: npx expo prebuild --platform android --clean
 
       - name: Make gradlew executable
