@@ -98,6 +98,19 @@ static void ensureHubMeta() {
 
 static NimBLECharacteristic* _statusChar = nullptr;
 
+// Sends identity hello as soon as phone subscribes to STATUS_CHAR notifications.
+// This is reliable (uses push, not read) and not affected by Android GATT cache.
+class StatusCharCB : public NimBLECharacteristicCallbacks {
+  void onSubscribe(NimBLECharacteristic* c, ble_gap_conn_desc*, uint16_t subValue) override {
+    if (subValue == 0) return; // unsubscribe event — ignore
+    String hello = "{\"state\":\"hello\",\"hub_id\":\"" + g_hubMeta.hub_id +
+                   "\",\"mdns_name\":\"" + g_hubMeta.mdns_name + "\"}";
+    c->setValue(hello.c_str());
+    c->notify();
+    Serial.printf("[BLE] hello sent → %s\n", hello.c_str());
+  }
+};
+
 class ConfigCB : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c) override {
     std::string raw = c->getValue();
@@ -188,6 +201,7 @@ static void startBLE() {
     NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
   );
   _statusChar->setValue("{\"state\":\"idle\"}");
+  _statusChar->setCallbacks(new StatusCharCB());
 
   // META_CHAR — read-only, exposes hub_id + mdns_name before WiFi starts
   // Phone reads this BEFORE sending WiFi credentials (while BLE is stable)

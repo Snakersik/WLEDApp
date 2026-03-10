@@ -84,34 +84,20 @@ export async function provisionHub(
   try {
     const connected = await device.connect({ timeout: 10_000 });
     await connected.discoverAllServicesAndCharacteristics();
-    await delay(500); // let Android GATT stack settle before reading
+    await delay(300);
     const toB64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
-    // Read hub identity BEFORE sending WiFi (BLE is stable here, no WiFi yet).
-    // Retry 3x — Android GATT cache may return stale data on first read.
     let bleMeta: { hub_id?: string; mdns_name?: string } = {};
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const metaChar = await connected.readCharacteristicForService(SERVICE_UUID, META_CHAR);
-        if (metaChar?.value) {
-          const parsed = JSON.parse(Buffer.from(metaChar.value, 'base64').toString('utf8'));
-          if (parsed.mdns_name) {
-            bleMeta = parsed;
-            console.log('BLE META ok (attempt', attempt + 1, '):', bleMeta);
-            break;
-          }
-        }
-      } catch (e) {
-        console.log('BLE META attempt', attempt + 1, 'fail:', e);
-        if (attempt < 2) await delay(300);
-      }
-    }
 
     let resolveResult!: (r: ProvisionResult) => void;
     const resultPromise = new Promise<ProvisionResult>((r) => { resolveResult = r; });
 
     // resolved guard — prevents double-resolve if callback fires multiple times
     let resolved = false;
+
+    // Subscribe to STATUS_CHAR FIRST — hub sends {"state":"hello",...} immediately
+    // in onSubscribe callback (triggered by CCCD write). This is push-based and NOT
+    // affected by Android GATT cache (unlike readCharacteristicForService).
     const sub = connected.monitorCharacteristicForService(
       SERVICE_UUID, STATUS_CHAR,
       (_err, char) => {
@@ -123,11 +109,18 @@ export async function provisionHub(
           }
           return;
         }
-        if (resolved || !char?.value) return;
+        if (!char?.value) return;
         try {
           const raw = Buffer.from(char.value, 'base64').toString('utf8');
           console.log('BLE STATUS RAW:', raw);
           const json = JSON.parse(raw);
+          if (json.state === 'hello') {
+            // Identity delivered via push — update bleMeta (no GATT cache issue)
+            if (json.hub_id) bleMeta = { hub_id: json.hub_id, mdns_name: json.mdns_name };
+            console.log('BLE hello → bleMeta:', bleMeta);
+            return; // not a final result, keep waiting
+          }
+          if (resolved) return;
           if (json.state === 'success' && json.ip && IPV4_RE.test(json.ip)) {
             resolved = true;
             resolveResult({ status: 'ok', ip: json.ip,
@@ -143,7 +136,31 @@ export async function provisionHub(
       }
     );
 
-    // Short delay to ensure subscription is active before sending config
+    // Wait for hello notify (hub fires onSubscribe → sends hello right after CCCD write)
+    await delay(500);
+
+    // Fallback: try META_CHAR read if hello didn't arrive (old firmware / notify lost)
+    if (!bleMeta.mdns_name) {
+      console.log('BLE hello not received — falling back to META_CHAR read');
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const metaChar = await connected.readCharacteristicForService(SERVICE_UUID, META_CHAR);
+          if (metaChar?.value) {
+            const parsed = JSON.parse(Buffer.from(metaChar.value, 'base64').toString('utf8'));
+            if (parsed.mdns_name) {
+              bleMeta = parsed;
+              console.log('BLE META fallback ok (attempt', attempt + 1, '):', bleMeta);
+              break;
+            }
+          }
+        } catch (e) {
+          console.log('BLE META attempt', attempt + 1, 'fail:', e);
+          if (attempt < 2) await delay(300);
+        }
+      }
+    }
+
+    // Short delay before writing credentials
     await delay(200);
 
     // Send single atomic JSON command
