@@ -86,9 +86,14 @@ export async function provisionHub(
     const sub = connected.monitorCharacteristicForService(
       SERVICE_UUID, STATUS_CHAR,
       (_err, char) => {
+        if (_err) {
+          console.log('BLE STATUS ERR:', _err);
+        }
         if (resolved || !char?.value) return;
         try {
-          const json = JSON.parse(Buffer.from(char.value, 'base64').toString('utf8'));
+          const raw = Buffer.from(char.value, 'base64').toString('utf8');
+          console.log('BLE STATUS RAW:', raw);
+          const json = JSON.parse(raw);
           if (json.state === 'success' && json.ip && IPV4_RE.test(json.ip)) {
             resolved = true;
             resolveResult({ status: 'ok', ip: json.ip,
@@ -98,8 +103,8 @@ export async function provisionHub(
             resolveResult({ status: 'error', message: `Hub błąd: ${json.reason ?? 'wifi_failed'}` });
           }
           // state === 'connecting' → ignore, wait for next notification
-        } catch {
-          // Corrupted JSON packet — ignore, wait for next valid notification
+        } catch (e) {
+          console.log('BLE STATUS JSON PARSE FAIL:', e);
         }
       }
     );
@@ -248,33 +253,17 @@ export async function findHubOnLan(timeoutMs = 30_000): Promise<string | null> {
     for (let i = 1; i <= 254; i++) allIps.push(`${subnet}.${i}`);
   }
 
-  return new Promise((resolve) => {
-    let found = false;
-    let completed = 0;
-    const total = allIps.length;
-    const finish = (ip: string | null) => { if (!found) { found = true; resolve(ip); } };
+  const BATCH = 30;
+  const deadline = Date.now() + timeoutMs;
 
-    const BATCH = 30;
-    let idx = 0;
-    const deadline = Date.now() + timeoutMs;
-
-    const runBatch = () => {
-      if (found || idx >= total || Date.now() > deadline) return;
-      const batch = allIps.slice(idx, idx + BATCH);
-      idx += BATCH;
-      batch.forEach(ip => {
-        probe(ip).then(result => {
-          completed++;
-          if (result) finish(result);
-          else if (completed === total) finish(null);
-          else if (idx < total && !found) runBatch();
-        });
-      });
-    };
-
-    setTimeout(() => finish(null), timeoutMs);
-    runBatch();
-  });
+  for (let i = 0; i < allIps.length; i += BATCH) {
+    if (Date.now() > deadline) return null;
+    const batch = allIps.slice(i, i + BATCH);
+    const results = await Promise.all(batch.map(probe));
+    const found = results.find(Boolean);
+    if (found) return found;
+  }
+  return null;
 }
 
 export function destroyBleManager() {

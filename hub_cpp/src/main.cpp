@@ -158,7 +158,7 @@ class ConfigCB : public NimBLECharacteristicCallbacks {
           _statusChar->setValue(msg.c_str());
           _statusChar->notify();
         }
-        delay(2000);
+        delay(5000);
       } else {
         Serial.println("[BLE] WiFi failed");
         if (_statusChar) {

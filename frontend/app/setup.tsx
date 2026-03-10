@@ -83,6 +83,13 @@ export default function SetupScreen() {
   const [configuredWled, setConfiguredWled] = useState<string[]>([]);
   const [foundDevices, setFoundDevices]     = useState<Array<{ ip: string; name: string }>>([]);
 
+  // Debug log
+  const [debugMsg, setDebugMsg] = useState("");
+  const addDebug = useCallback((msg: string) => {
+    const ts = new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setDebugMsg(prev => prev ? `${prev}\n[${ts}] ${msg}` : `[${ts}] ${msg}`);
+  }, []);
+
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -210,6 +217,7 @@ export default function SetupScreen() {
     if (!isMounted.current) return;
 
     if (result.status === "ok") {
+      addDebug(`BLE ok — IP: ${result.ip} hub_id: ${result.hubId ?? "?"} mdns: ${result.mdnsName ?? "?"}`);
       // Save credentials for next time
       await Promise.all([
         AsyncStorage.setItem(STORAGE_SSID, ssid.trim()),
@@ -218,12 +226,14 @@ export default function SetupScreen() {
 
       // Hub restarts after provisioning — wait briefly before probing
       go("hub_wait", "Hub restartuje się i dołącza do sieci…");
+      addDebug("hub_wait — czekam 3s…");
       await delay(3000);
 
       // JSON protocol guarantees result.ip is a valid IP
       setHubIpInput(result.ip);
       await registerHubAt(result.ip, result.mdnsName, result.hubId);
     } else if (result.message?.includes("Timeout")) {
+      addDebug(`BLE timeout — fallback LAN scan`);
       // Hub may have connected but STATUS notify was lost — try LAN scan as fallback
       go("hub_lan_scan", "Hub mógł się połączyć z WiFi. Szukam go w sieci…");
       const foundIp = await findHubOnLan(30_000);
@@ -239,7 +249,8 @@ export default function SetupScreen() {
         { text: "Spróbuj ponownie", onPress: () => go("wifi_form") },
       ]);
     }
-  }, [foundDevice, ssid, wifiPass, go]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foundDevice, ssid, wifiPass, go, addDebug]);
 
   // ── Register hub in backend (core logic) ─────────────────────
   const registerHubAt = useCallback(async (
@@ -250,13 +261,17 @@ export default function SetupScreen() {
     go("hub_register", "Sprawdzam połączenie z hubem…");
 
     // 1. Try IP directly
+    addDebug(`probe IP: ${ip}`);
     let effectiveHost = ip;
     let online = await waitForHubOnline(ip, 15_000, 1_500);
+    addDebug(`probe IP result: ${online ? "ok" : "fail"}`);
 
     // 2. Try mDNS .local if IP failed
     if (!online && mdnsName) {
       effectiveHost = `${mdnsName}.local`;
+      addDebug(`probe mDNS: ${effectiveHost}`);
       online = await waitForHubOnline(effectiveHost, 10_000, 1_500);
+      addDebug(`probe mDNS result: ${online ? "ok" : "fail"}`);
     }
 
     if (!online) {
@@ -295,7 +310,8 @@ export default function SetupScreen() {
       Alert.alert("Błąd rejestracji", e?.response?.data?.detail ?? e?.message ?? "Nieznany błąd");
       go("hub_ip");
     }
-  }, [hubName, token, go, refreshHub]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hubName, token, go, refreshHub, addDebug]);
 
   // ── Register hub (manual IP fallback button) ─────────────────
   const registerHub = useCallback(async () => {
@@ -609,6 +625,13 @@ export default function SetupScreen() {
               <PrimaryBtn label="Zakończ" onPress={() => router.back()} />
             </Card>
           )}
+          {/* ── DEBUG PANEL ── */}
+          {!!debugMsg && (
+            <View style={s.debugPanel}>
+              <Text style={s.debugTitle}>Debug log</Text>
+              <Text style={s.debugText} selectable>{debugMsg}</Text>
+            </View>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -693,4 +716,8 @@ const s = StyleSheet.create({
   netTextSelected: { color: "#6366f1", fontWeight: "700" },
   scanNetBtn:      { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginTop: 4 },
   scanNetBtnText:  { color: "#6366f1", fontSize: 13, fontWeight: "600" },
+
+  debugPanel: { marginTop: 24, backgroundColor: "#0f172a", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#334155" },
+  debugTitle:  { color: "#64748b", fontSize: 11, fontWeight: "700", marginBottom: 6, textTransform: "uppercase" },
+  debugText:   { color: "#475569", fontSize: 11, fontFamily: "monospace", lineHeight: 16 },
 });
