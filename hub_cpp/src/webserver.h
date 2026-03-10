@@ -1,0 +1,430 @@
+#pragma once
+#include "config.h"
+#include <ESPAsyncWebServer.h>
+#include <AsyncJson.h>
+#include <ArduinoJson.h>
+
+static AsyncWebServer _srv(80);
+
+static void addCors(AsyncWebServerResponse* r) {
+  r->addHeader("Access-Control-Allow-Origin",  "*");
+  r->addHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,PATCH,OPTIONS");
+  r->addHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+static void sendJson(AsyncWebServerRequest* req, const JsonDocument& doc, int code = 200) {
+  String body; serializeJson(doc, body);
+  auto* r = req->beginResponse(code, "application/json", body);
+  addCors(r); req->send(r);
+}
+
+static void sendOk(AsyncWebServerRequest* req) {
+  auto* r = req->beginResponse(200, "application/json", "{\"ok\":true}");
+  addCors(r); req->send(r);
+}
+
+static void sendErr(AsyncWebServerRequest* req, const char* msg, int code = 400) {
+  JsonDocument d; d["error"] = msg;
+  sendJson(req, d, code);
+}
+
+static String bodyOf(AsyncWebServerRequest* req, uint8_t* data, size_t len) {
+  return String((char*)data, len);
+}
+
+// Find group by id (must hold mux or be on same core)
+static Group* findGroup(const String& id) {
+  for (auto& g : g_groups) if (g.id == id) return &g;
+  return nullptr;
+}
+
+void setupServer() {
+  // OPTIONS preflight
+  _srv.on("/*", HTTP_OPTIONS, [](AsyncWebServerRequest* req) {
+    auto* r = req->beginResponse(200);
+    addCors(r); req->send(r);
+  });
+
+  // GET /json/info
+  _srv.on("/json/info", HTTP_GET, [](AsyncWebServerRequest* req) {
+    JsonDocument d;
+    d["name"] = "DDP Hub"; d["ver"] = "3.0.0";
+    d["leds"]["count"] = NUM_LEDS;
+    d["live"] = true;
+    taskENTER_CRITICAL(&g_mux);
+    d["groups"] = g_groups.size();
+    taskEXIT_CRITICAL(&g_mux);
+    sendJson(req, d);
+  });
+
+  // GET /json/state — returns state of first group (WLED compat)
+  _srv.on("/json/state", HTTP_GET, [](AsyncWebServerRequest* req) {
+    JsonDocument d;
+    taskENTER_CRITICAL(&g_mux);
+    SegState s = g_groups.empty()
+      ? SegState{}
+      : g_groups[0].state;
+    taskEXIT_CRITICAL(&g_mux);
+    d["on"]  = s.on;  d["bri"] = s.bri;
+    d["fx"]  = s.fx;  d["sx"]  = s.sx;  d["ix"] = s.ix;
+    JsonArray col = d["col"].to<JsonArray>();
+    JsonArray c0  = col.add<JsonArray>();
+    c0.add(s.col[0]); c0.add(s.col[1]); c0.add(s.col[2]);
+    sendJson(req, d);
+  });
+
+  // POST /json/state — apply to all groups
+  _srv.addHandler(new AsyncCallbackJsonWebHandler("/json/state",
+    [](AsyncWebServerRequest* req, JsonVariant& jv) {
+      taskENTER_CRITICAL(&g_mux);
+      for (auto& g : g_groups) applyState(g.state, jv.as<JsonObjectConst>());
+      taskEXIT_CRITICAL(&g_mux);
+      saveConfig();
+      sendOk(req);
+    }
+  ));
+
+  // GET /devices
+  _srv.on("/devices", HTTP_GET, [](AsyncWebServerRequest* req) {
+    JsonDocument d; JsonArray arr = d.to<JsonArray>();
+    taskENTER_CRITICAL(&g_mux);
+    for (auto& ds : g_devices) {
+      JsonDocument tmp;
+      if (!deserializeJson(tmp, ds)) arr.add(tmp.as<JsonObjectConst>());
+    }
+    taskEXIT_CRITICAL(&g_mux);
+    sendJson(req, d);
+  });
+
+  // POST /devices
+  _srv.addHandler(new AsyncCallbackJsonWebHandler("/devices",
+    [](AsyncWebServerRequest* req, JsonVariant& jv) {
+      if (!jv["ip"].is<const char*>()) { sendErr(req, "missing ip"); return; }
+      JsonDocument dev;
+      taskENTER_CRITICAL(&g_mux);
+      uint32_t newId = 1;
+      for (auto& ds : g_devices) {
+        JsonDocument tmp; deserializeJson(tmp, ds);
+        uint32_t n = String(tmp["id"].as<const char*>()).toInt();
+        if (n >= newId) newId = n + 1;
+      }
+      dev["id"]   = String(newId);
+      dev["ip"]   = jv["ip"].as<String>();
+      dev["name"] = jv["name"].is<const char*>() ? jv["name"].as<String>() : jv["ip"].as<String>();
+      String ds; serializeJson(dev, ds);
+      g_devices.push_back(ds);
+      taskEXIT_CRITICAL(&g_mux);
+      saveConfig();
+      sendJson(req, dev);
+    }
+  ));
+
+  // GET /groups
+  _srv.on("/groups", HTTP_GET, [](AsyncWebServerRequest* req) {
+    JsonDocument d; JsonArray arr = d.to<JsonArray>();
+    taskENTER_CRITICAL(&g_mux);
+    for (auto& g : g_groups) {
+      JsonObject obj = arr.add<JsonObject>();
+      obj["id"] = g.id; obj["name"] = g.name;
+      JsonArray devs = obj["devices"].to<JsonArray>();
+      for (auto& ip : g.devices) devs.add(ip);
+      JsonObject st = obj["state"].to<JsonObject>();
+      stateToJson(g.state, st);
+    }
+    taskEXIT_CRITICAL(&g_mux);
+    sendJson(req, d);
+  });
+
+  // POST /groups/{id}/state — registered BEFORE POST /groups so wildcard wins
+  // (AsyncCallbackJsonWebHandler uses startsWith, so "/groups" would match "/groups/*/state")
+  static String _grpStateBody;
+  _srv.on("/groups/*", HTTP_POST,
+    [](AsyncWebServerRequest* req) {
+      String path = req->url();
+      int sl = path.lastIndexOf('/');
+      if (path.substring(sl + 1) != "state") { sendErr(req, "not found", 404); return; }
+      String gid = path.substring(8, sl);
+      JsonDocument jv;
+      if (deserializeJson(jv, _grpStateBody)) { sendErr(req, "invalid json"); return; }
+      taskENTER_CRITICAL(&g_mux);
+      Group* g = findGroup(gid);
+      if (!g) { taskEXIT_CRITICAL(&g_mux); sendErr(req, "not found", 404); return; }
+      applyState(g->state, jv.as<JsonObjectConst>());
+      taskEXIT_CRITICAL(&g_mux);
+      saveConfig(); sendOk(req);
+    },
+    nullptr,
+    [](AsyncWebServerRequest*, uint8_t* data, size_t len, size_t index, size_t) {
+      if (index == 0) _grpStateBody = "";
+      _grpStateBody.concat((char*)data, len);
+    }
+  );
+
+  // PATCH /groups/{id} — update name/devices
+  static String _grpPatchBody;
+  _srv.on("/groups/*", HTTP_PATCH,
+    [](AsyncWebServerRequest* req) {
+      String path = req->url();
+      String gid  = path.substring(8);
+      if (gid.indexOf('/') != -1) { sendErr(req, "not found", 404); return; }
+      JsonDocument jv;
+      if (deserializeJson(jv, _grpPatchBody)) { sendErr(req, "invalid json"); return; }
+      JsonDocument resp;
+      taskENTER_CRITICAL(&g_mux);
+      Group* g = findGroup(gid);
+      if (!g) { taskEXIT_CRITICAL(&g_mux); sendErr(req, "not found", 404); return; }
+      if (jv["name"].is<const char*>()) g->name = jv["name"].as<String>();
+      if (jv["devices"].is<JsonArrayConst>()) {
+        g->devices.clear();
+        for (auto d : jv["devices"].as<JsonArrayConst>()) g->devices.push_back(d.as<String>());
+      }
+      resp["id"] = g->id; resp["name"] = g->name;
+      taskEXIT_CRITICAL(&g_mux);
+      saveConfig(); sendJson(req, resp);
+    },
+    nullptr,
+    [](AsyncWebServerRequest*, uint8_t* data, size_t len, size_t index, size_t) {
+      if (index == 0) _grpPatchBody = "";
+      _grpPatchBody.concat((char*)data, len);
+    }
+  );
+
+  // POST /groups — create or upsert (registered AFTER wildcard handlers)
+  _srv.addHandler(new AsyncCallbackJsonWebHandler("/groups",
+    [](AsyncWebServerRequest* req, JsonVariant& jv) {
+      if (!jv["name"].is<const char*>()) { sendErr(req, "missing name"); return; }
+      JsonDocument resp;
+      taskENTER_CRITICAL(&g_mux);
+      String explicitId = jv["id"].is<const char*>() ? jv["id"].as<String>() : "";
+      if (explicitId.length()) {
+        Group* existing = findGroup(explicitId);
+        if (existing) {
+          existing->name = jv["name"].as<String>();
+          if (jv["devices"].is<JsonArrayConst>()) {
+            existing->devices.clear();
+            for (auto d : jv["devices"].as<JsonArrayConst>()) existing->devices.push_back(d.as<String>());
+          }
+          resp["id"] = existing->id; resp["name"] = existing->name;
+          taskEXIT_CRITICAL(&g_mux);
+          saveConfig(); sendJson(req, resp); return;
+        }
+      }
+      Group g;
+      g.id   = explicitId.length() ? explicitId : String(nextId(g_groups));
+      g.name = jv["name"].as<String>();
+      if (jv["devices"].is<JsonArrayConst>())
+        for (auto d : jv["devices"].as<JsonArrayConst>()) g.devices.push_back(d.as<String>());
+      resp["id"] = g.id; resp["name"] = g.name;
+      g_groups.push_back(std::move(g));
+      taskEXIT_CRITICAL(&g_mux);
+      saveConfig(); sendJson(req, resp);
+    }
+  ));
+
+  // GET /groups/{id}/state
+  _srv.on("/groups/*", HTTP_GET, [](AsyncWebServerRequest* req) {
+    String path = req->url();
+    // /groups/{id}/state
+    int sl = path.lastIndexOf('/');
+    String sub = path.substring(sl + 1);
+    String gid;
+    if (sub == "state") {
+      gid = path.substring(8, sl); // strip /groups/ and /state
+    } else {
+      // /groups/{id} GET — not separately implemented, reuse groups list
+      sendErr(req, "use GET /groups"); return;
+    }
+    JsonDocument d;
+    taskENTER_CRITICAL(&g_mux);
+    Group* g = findGroup(gid);
+    if (!g) { taskEXIT_CRITICAL(&g_mux); sendErr(req, "not found", 404); return; }
+    stateToJson(g->state, d.to<JsonObject>());
+    taskEXIT_CRITICAL(&g_mux);
+    sendJson(req, d);
+  });
+
+  // DELETE /groups/{id}
+  _srv.on("/groups/*", HTTP_DELETE, [](AsyncWebServerRequest* req) {
+    String path = req->url();
+    String gid  = path.substring(8);
+    taskENTER_CRITICAL(&g_mux);
+    for (size_t i = 0; i < g_groups.size(); i++) {
+      if (g_groups[i].id == gid) { g_groups.erase(g_groups.begin() + i); break; }
+    }
+    taskEXIT_CRITICAL(&g_mux);
+    saveConfig(); sendOk(req);
+  });
+
+  // DELETE /devices/{id}
+  _srv.on("/devices/*", HTTP_DELETE, [](AsyncWebServerRequest* req) {
+    String path = req->url();
+    String did  = path.substring(9);
+    taskENTER_CRITICAL(&g_mux);
+    for (size_t i = 0; i < g_devices.size(); i++) {
+      JsonDocument tmp; deserializeJson(tmp, g_devices[i]);
+      if (tmp["id"].as<String>() == did) { g_devices.erase(g_devices.begin() + i); break; }
+    }
+    taskEXIT_CRITICAL(&g_mux);
+    saveConfig(); sendOk(req);
+  });
+
+  // POST /tz — set timezone offset (seconds east of UTC) and re-sync NTP
+  _srv.addHandler(new AsyncCallbackJsonWebHandler("/tz",
+    [](AsyncWebServerRequest* req, JsonVariant& jv) {
+      long tz = jv["tz_offset"] | 3600L;
+      JsonDocument d; d["tz_offset"] = tz;
+      File f = LittleFS.open("/tz.json", "w");
+      if (f) { serializeJson(d, f); f.close(); }
+      _tzOffset = tz;
+      configTime(_tzOffset, 0, "pool.ntp.org", "time.google.com");
+      Serial.printf("[SCHED] tz_offset updated: %ld\n", _tzOffset);
+      sendOk(req);
+    }
+  ));
+
+  // GET /schedules
+  _srv.on("/schedules", HTTP_GET, [](AsyncWebServerRequest* req) {
+    JsonDocument doc;
+    JsonArray arr = doc.to<JsonArray>();
+    for (auto& s : g_schedules) {
+      JsonObject o = arr.add<JsonObject>();
+      o["id"]          = s.id;
+      o["name"]        = s.name;
+      o["target_type"] = s.target_type;
+      o["target_id"]   = s.target_id;
+      JsonArray days = o["days"].to<JsonArray>();
+      for (int i = 0; i < 7; i++) if (s.days[i]) days.add(i);
+      o["time"]    = s.time;
+      o["enabled"] = s.enabled;
+      JsonObject st = o["state"].to<JsonObject>();
+      stateToJson(s.state, st);
+    }
+    sendJson(req, doc);
+  });
+
+  // POST /schedules — create
+  _srv.addHandler(new AsyncCallbackJsonWebHandler("/schedules",
+    [](AsyncWebServerRequest* req, JsonVariant& jv) {
+      if (!jv["name"].is<const char*>() || !jv["time"].is<const char*>()) {
+        sendErr(req, "missing name/time"); return;
+      }
+      HubSchedule s;
+      // Auto-generate ID
+      uint32_t newId = 1;
+      for (auto& x : g_schedules) {
+        uint32_t n = x.id.toInt();
+        if (n >= newId) newId = n + 1;
+      }
+      s.id          = String(newId);
+      s.name        = jv["name"].as<String>();
+      s.target_type = jv["target_type"].is<const char*>() ? jv["target_type"].as<String>() : "all";
+      s.target_id   = jv["target_id"].is<const char*>()   ? jv["target_id"].as<String>()   : "";
+      for (JsonVariantConst d : jv["days"].as<JsonArrayConst>()) {
+        int idx = d.as<int>(); if (idx >= 0 && idx < 7) s.days[idx] = true;
+      }
+      s.time    = jv["time"].as<String>();
+      s.enabled = jv["enabled"] | true;
+      if (jv["state"].is<JsonObjectConst>()) applyState(s.state, jv["state"].as<JsonObjectConst>());
+      JsonDocument resp;
+      resp["id"] = s.id; resp["name"] = s.name;
+      g_schedules.push_back(std::move(s));
+      saveSchedules();
+      sendJson(req, resp);
+    }
+  ));
+
+  // PATCH /schedules/* — update or toggle
+  static String _schPatchBody;
+  _srv.on("/schedules/*", HTTP_PATCH,
+    [](AsyncWebServerRequest* req) {
+      String path = req->url();
+      // /schedules/{id}/toggle  OR  /schedules/{id}
+      int sl = path.lastIndexOf('/');
+      String last = path.substring(sl + 1);
+      String sid;
+      bool isToggle = false;
+      if (last == "toggle") {
+        sid = path.substring(11, sl);  // strip /schedules/ and /toggle
+        isToggle = true;
+      } else {
+        sid = path.substring(11);
+      }
+      JsonDocument jv;
+      if (!isToggle && deserializeJson(jv, _schPatchBody)) { sendErr(req, "invalid json"); return; }
+
+      for (auto& s : g_schedules) {
+        if (s.id != sid) continue;
+        if (isToggle) {
+          s.enabled = !s.enabled;
+        } else {
+          if (jv["name"].is<const char*>())        s.name        = jv["name"].as<String>();
+          if (jv["target_type"].is<const char*>()) s.target_type = jv["target_type"].as<String>();
+          if (jv["target_id"].is<const char*>())   s.target_id   = jv["target_id"].as<String>();
+          if (jv["time"].is<const char*>())         s.time        = jv["time"].as<String>();
+          if (jv["enabled"].is<bool>())             s.enabled     = jv["enabled"].as<bool>();
+          if (jv["days"].is<JsonArrayConst>()) {
+            for (int i = 0; i < 7; i++) s.days[i] = false;
+            for (JsonVariantConst d : jv["days"].as<JsonArrayConst>()) {
+              int idx = d.as<int>(); if (idx >= 0 && idx < 7) s.days[idx] = true;
+            }
+          }
+          if (jv["state"].is<JsonObjectConst>()) applyState(s.state, jv["state"].as<JsonObjectConst>());
+        }
+        JsonDocument resp;
+        resp["id"] = s.id; resp["enabled"] = s.enabled;
+        saveSchedules();
+        sendJson(req, resp);
+        return;
+      }
+      sendErr(req, "not found", 404);
+    },
+    nullptr,
+    [](AsyncWebServerRequest*, uint8_t* data, size_t len, size_t index, size_t) {
+      if (index == 0) _schPatchBody = "";
+      _schPatchBody.concat((char*)data, len);
+    }
+  );
+
+  // DELETE /schedules/{id}
+  _srv.on("/schedules/*", HTTP_DELETE, [](AsyncWebServerRequest* req) {
+    String sid = req->url().substring(11);
+    for (size_t i = 0; i < g_schedules.size(); i++) {
+      if (g_schedules[i].id == sid) {
+        g_schedules.erase(g_schedules.begin() + i);
+        saveSchedules();
+        sendOk(req);
+        return;
+      }
+    }
+    sendErr(req, "not found", 404);
+  });
+
+  // POST /restart — reboot the hub
+  _srv.on("/restart", HTTP_POST, [](AsyncWebServerRequest* req) {
+    sendOk(req);
+    delay(200); ESP.restart();
+  });
+
+  // DELETE /wifi — remove wifi.json and reboot into AP mode
+  _srv.on("/wifi", HTTP_DELETE, [](AsyncWebServerRequest* req) {
+    LittleFS.remove("/wifi.json");
+    sendOk(req);
+    delay(500); ESP.restart();
+  });
+
+  // POST /wifi — change WiFi credentials and reboot
+  _srv.addHandler(new AsyncCallbackJsonWebHandler("/wifi",
+    [](AsyncWebServerRequest* req, JsonVariant& jv) {
+      if (!jv["ssid"].is<const char*>() || !jv["password"].is<const char*>()) {
+        sendErr(req, "missing ssid/password"); return;
+      }
+      File f = LittleFS.open("/wifi.json", "w");
+      if (f) { serializeJson(jv, f); f.close(); }
+      sendOk(req);
+      delay(500); ESP.restart();
+    }
+  ));
+
+  _srv.begin();
+  Serial.println("HTTP server started on :80");
+}
