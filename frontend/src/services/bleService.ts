@@ -78,18 +78,27 @@ export async function provisionHub(
   try {
     const connected = await device.connect({ timeout: 10_000 });
     await connected.discoverAllServicesAndCharacteristics();
+    await delay(500); // let Android GATT stack settle before reading
     const toB64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
-    // Read hub identity BEFORE sending WiFi (BLE is stable here, no WiFi yet)
+    // Read hub identity BEFORE sending WiFi (BLE is stable here, no WiFi yet).
+    // Retry 3x — Android GATT cache may return stale data on first read.
     let bleMeta: { hub_id?: string; mdns_name?: string } = {};
-    try {
-      const metaChar = await connected.readCharacteristicForService(SERVICE_UUID, META_CHAR);
-      if (metaChar?.value) {
-        bleMeta = JSON.parse(Buffer.from(metaChar.value, 'base64').toString('utf8'));
-        console.log('BLE META:', bleMeta);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const metaChar = await connected.readCharacteristicForService(SERVICE_UUID, META_CHAR);
+        if (metaChar?.value) {
+          const parsed = JSON.parse(Buffer.from(metaChar.value, 'base64').toString('utf8'));
+          if (parsed.mdns_name) {
+            bleMeta = parsed;
+            console.log('BLE META ok (attempt', attempt + 1, '):', bleMeta);
+            break;
+          }
+        }
+      } catch (e) {
+        console.log('BLE META attempt', attempt + 1, 'fail:', e);
+        if (attempt < 2) await delay(300);
       }
-    } catch (e) {
-      console.log('BLE META read fail (old firmware?):', e);
     }
 
     let resolveResult!: (r: ProvisionResult) => void;
@@ -261,11 +270,15 @@ export async function findHubOnLan(timeoutMs = 30_000): Promise<string | null> {
     ? [detectedSubnet, ...fallbacks.filter(s => s !== detectedSubnet)]
     : fallbacks;
 
-  const probe = (ip: string): Promise<string | null> =>
-    fetch(`http://${ip}/json/info`, { signal: AbortSignal.timeout(1000) })
+  const probe = (ip: string): Promise<string | null> => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 1000);
+    return fetch(`http://${ip}/json/info`, { signal: ctrl.signal })
       .then(r => r.json())
       .then((j: any) => (j?.hub_id || j?.name === 'DDP Hub' ? ip : null))
-      .catch(() => null);
+      .catch(() => null)
+      .finally(() => clearTimeout(timer));
+  };
 
   const allIps: string[] = [];
   for (const subnet of subnets) {
