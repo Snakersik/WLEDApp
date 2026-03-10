@@ -64,11 +64,6 @@ export default function HubScreen() {
   const [editIp, setEditIp] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Add hub modal (when no hub)
-  const [addModal, setAddModal] = useState(false);
-  const [addName, setAddName] = useState("");
-  const [addIp, setAddIp] = useState("");
-  const [adding, setAdding] = useState(false);
 
   // Scan state
   const [scanning, setScanning] = useState(false);
@@ -211,26 +206,6 @@ export default function HubScreen() {
     }
   };
 
-  const handleAddHub = async () => {
-    if (!addName.trim() || !addIp.trim()) { Alert.alert(t("error"), t("fillNameAndIp")); return; }
-    setAdding(true);
-    try {
-      const res = await axios.post(
-        `${API_URL}/hubs`,
-        { name: addName.trim(), ip_address: addIp.trim() },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      setAddModal(false);
-      setAddName(""); setAddIp("");
-      pushTz(addIp.trim());
-      await refreshHub();
-      load();
-    } catch {
-      Alert.alert(t("error"), t("failedToAddHub"));
-    } finally {
-      setAdding(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -254,7 +229,7 @@ export default function HubScreen() {
               <Ionicons name="settings-outline" size={22} color={C.text2} />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={s.addBtn} onPress={() => setAddModal(true)}>
+            <TouchableOpacity style={s.addBtn} onPress={() => router.push("/setup")}>
               <Ionicons name="add" size={22} color="#fff" />
             </TouchableOpacity>
           )}
@@ -266,7 +241,7 @@ export default function HubScreen() {
             <Ionicons name="hardware-chip-outline" size={64} color={C.text3} />
             <Text style={s.emptyTitle}>{t("noHub")}</Text>
             <Text style={s.emptyText}>{t("noHubSubtext")}</Text>
-            <TouchableOpacity style={s.addBtn2} onPress={() => setAddModal(true)}>
+            <TouchableOpacity style={s.addBtn2} onPress={() => router.push("/setup")}>
               <Ionicons name="add" size={18} color="#fff" />
               <Text style={s.addBtnText}>{t("addHub")}</Text>
             </TouchableOpacity>
@@ -447,38 +422,6 @@ export default function HubScreen() {
         </View>
       </Modal>
 
-      {/* Add hub modal */}
-      <Modal visible={addModal} transparent animationType="slide">
-        <View style={s.overlay}>
-          <View style={s.modal}>
-            <Text style={s.modalTitle}>{t("addHub")}</Text>
-            <TextInput
-              style={s.input}
-              placeholder={t("name")}
-              placeholderTextColor={C.text3}
-              value={addName}
-              onChangeText={setAddName}
-            />
-            <TextInput
-              style={s.input}
-              placeholder={t("ipAddress")}
-              placeholderTextColor={C.text3}
-              value={addIp}
-              onChangeText={setAddIp}
-              keyboardType="numeric"
-              autoCapitalize="none"
-            />
-            <View style={s.modalBtns}>
-              <TouchableOpacity style={s.btnCancel} onPress={() => { setAddModal(false); setAddName(""); setAddIp(""); }}>
-                <Text style={s.btnCancelText}>{t("cancel")}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.btnSave} onPress={handleAddHub} disabled={adding}>
-                {adding ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.btnSaveText}>{t("add")}</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
