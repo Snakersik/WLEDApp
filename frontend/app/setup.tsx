@@ -28,17 +28,22 @@ async function requestBlePermissions(): Promise<boolean> {
 
   if (sdk >= 31) {
     // Android 12+ (API 31+): BLUETOOTH_SCAN + BLUETOOTH_CONNECT are sufficient for BLE
-    // ACCESS_FINE_LOCATION is NOT required when manifest uses neverForLocation flag
     const perms = [
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
     ];
-    // Check first — if already granted, skip the dialog
+    // Check first — if already granted, skip the dialog (fast path)
     const checks = await Promise.all(perms.map((p) => PermissionsAndroid.check(p)));
     if (checks.every(Boolean)) return true;
 
     const grants = await PermissionsAndroid.requestMultiple(perms);
-    return Object.values(grants).every((v) => v === PermissionsAndroid.RESULTS.GRANTED);
+    // Accept GRANTED or NEVER_ASK_AGAIN — on MIUI/OEM ROMs, NEVER_ASK_AGAIN can mean
+    // the permission is actually granted as part of a grouped "Nearby devices" permission.
+    // Only block if explicitly DENIED.
+    return Object.values(grants).every(
+      (v) => v === PermissionsAndroid.RESULTS.GRANTED ||
+             v === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN
+    );
   } else {
     // Android < 12: only ACCESS_FINE_LOCATION needed for BLE
     const already = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
