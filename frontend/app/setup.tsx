@@ -28,6 +28,7 @@ import { useAuth } from "../src/context/AuthContext";
 import { useHub }  from "../src/context/HubContext";
 import {
   destroyBleManager,
+  findHubOnLan,
   provisionHub,
   scanForHub,
   scanForWledAps,
@@ -214,9 +215,24 @@ export default function SetupScreen() {
         AsyncStorage.setItem(STORAGE_SSID, ssid.trim()),
         AsyncStorage.setItem(STORAGE_PASS, wifiPass),
       ]);
-      // IP received directly from hub via BLE — no LAN scan needed
-      setHubIpInput(result.ip);
-      await registerHubAt(result.ip);
+
+      // Validate IP — BLE notify can be corrupted due to BLE/WiFi radio coexistence on ESP32
+      const ipValid = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(result.ip);
+      if (ipValid) {
+        setHubIpInput(result.ip);
+        await registerHubAt(result.ip);
+      } else {
+        // Garbled IP — scan LAN to find the hub
+        go("hub_lan_scan", "Hub połączony z WiFi. Szukam go w sieci…");
+        const foundIp = await findHubOnLan(30_000);
+        if (!isMounted.current) return;
+        if (foundIp) {
+          setHubIpInput(foundIp);
+          await registerHubAt(foundIp);
+        } else {
+          go("hub_ip");
+        }
+      }
     } else {
       Alert.alert("Błąd BLE", result.message, [
         { text: "Spróbuj ponownie", onPress: () => go("wifi_form") },
