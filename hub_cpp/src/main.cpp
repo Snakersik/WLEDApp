@@ -91,41 +91,36 @@ class PassCB : public NimBLECharacteristicCallbacks {
     Serial.println("[BLE] PASS received — saving wifi.json");
     if (!_bleSsid.length()) return;
 
-    // Save wifi.json
+    // Save wifi.json synchronously (fast, no blocking)
     JsonDocument doc;
     doc["ssid"] = _bleSsid;
     doc["password"] = _blePass;
     File f = LittleFS.open("/wifi.json", "w");
     if (f) { serializeJson(doc, f); f.close(); }
 
-    // Connect to WiFi and send IP back via BLE before restarting
-    Serial.printf("[BLE] Connecting to WiFi: %s\n", _bleSsid.c_str());
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(_bleSsid.c_str(), _blePass.c_str());
-    unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
-      delay(200);
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-      String ip = WiFi.localIP().toString();
-      Serial.printf("[BLE] WiFi OK — IP: %s\n", ip.c_str());
-      if (_ipChar) {
-        _ipChar->setValue(ip.c_str());
-        _ipChar->notify();
+    // Spawn FreeRTOS task so callback returns immediately → ATT Write Response sent promptly
+    xTaskCreate([](void*) {
+      Serial.printf("[BLE] Connecting to WiFi: %s\n", _bleSsid.c_str());
+      WiFi.mode(WIFI_STA);
+      WiFi.begin(_bleSsid.c_str(), _blePass.c_str());
+      unsigned long start = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+        delay(200);
       }
-      delay(2000); // give BLE time to deliver notify
-    } else {
-      Serial.println("[BLE] WiFi failed — notifying ERROR");
-      if (_ipChar) {
-        _ipChar->setValue("ERROR");
-        _ipChar->notify();
+      if (WiFi.status() == WL_CONNECTED) {
+        String ip = WiFi.localIP().toString();
+        Serial.printf("[BLE] WiFi OK — IP: %s\n", ip.c_str());
+        if (_ipChar) { _ipChar->setValue(ip.c_str()); _ipChar->notify(); }
+        delay(2000);
+      } else {
+        Serial.println("[BLE] WiFi failed — notifying ERROR");
+        if (_ipChar) { _ipChar->setValue("ERROR"); _ipChar->notify(); }
+        delay(500);
       }
-      delay(500);
-    }
-
-    Serial.println("[BLE] Rebooting...");
-    ESP.restart();
+      Serial.println("[BLE] Rebooting...");
+      ESP.restart();
+      vTaskDelete(nullptr);
+    }, "ble_wifi", 8192, nullptr, 1, nullptr);
   }
 };
 

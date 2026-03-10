@@ -104,6 +104,7 @@ export default function SetupScreen() {
             buttonNegative: "Pomiń",
           },
         ).catch(() => {});
+        NetInfo.configure({ shouldFetchWiFiSSID: true });
         const netInfo = await NetInfo.fetch();
         detectedSsid = (netInfo as any)?.details?.ssid as string | undefined;
       }
