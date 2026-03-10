@@ -61,7 +61,8 @@
       ],
       "@react-native-community/datetimepicker",
       "./plugins/withBLE",
-      "./plugins/withAndroidAGP"
+      "./plugins/withAndroidAGP",
+      "./plugins/withNetworkSecurity"
     ],
     "experiments": {
       "typedRoutes": true
