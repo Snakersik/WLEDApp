@@ -200,6 +200,34 @@ export async function waitForLanScan(
   return { running: false, done: true, found: [], error: 'timeout' };
 }
 
+/** Scan LAN for DDP Hub by probing /json/info in parallel across common subnets. */
+export async function findHubOnLan(timeoutMs = 30_000): Promise<string | null> {
+  const subnets = ['192.168.1', '192.168.0', '192.168.10', '10.0.0'];
+
+  const probe = (ip: string): Promise<string | null> =>
+    fetch(`http://${ip}/json/info`, { signal: AbortSignal.timeout(500) })
+      .then(r => r.json())
+      .then((j: any) => (j?.name === 'DDP Hub' ? ip : null))
+      .catch(() => null);
+
+  const all: Promise<string | null>[] = [];
+  for (const subnet of subnets) {
+    for (let i = 1; i <= 254; i++) all.push(probe(`${subnet}.${i}`));
+  }
+
+  return new Promise((resolve) => {
+    let done = false;
+    let pending = all.length;
+    const finish = (ip: string | null) => { if (!done) { done = true; resolve(ip); } };
+    all.forEach(p => p.then(ip => {
+      pending--;
+      if (ip) finish(ip);
+      else if (pending === 0) finish(null);
+    }));
+    setTimeout(() => finish(null), timeoutMs);
+  });
+}
+
 export function destroyBleManager() {
   _manager?.destroy();
   _manager = null;

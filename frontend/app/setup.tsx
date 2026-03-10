@@ -1,10 +1,4 @@
 // app/setup.tsx — Setup Wizard: Hub BLE provisioning + WLED auto-config
-// Navigation: push from hubs.tsx via router.push('/setup')
-//
-// REQUIRES:  npx expo install react-native-ble-plx buffer
-// iOS extra: app.json → expo.ios.infoPlist.NSBluetoothAlwaysUsageDescription
-// Android:   react-native-ble-plx handles permissions automatically
-
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -25,16 +19,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Device } from "react-native-ble-plx";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
 import axios from "axios";
 
 import { useAuth } from "../src/context/AuthContext";
 import { useHub }  from "../src/context/HubContext";
 import {
   destroyBleManager,
+  findHubOnLan,
   provisionHub,
   scanForHub,
   scanForWledAps,
-  startLanScan,
   startWledProvision,
   waitForHubOnline,
   waitForLanScan,
@@ -43,6 +39,9 @@ import {
 
 const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL ?? "") + "/api";
 
+const STORAGE_SSID = "hub_wifi_ssid";
+const STORAGE_PASS = "hub_wifi_pass";
+
 // ─────────────────────────────────────────────────────────────
 type Step =
   | "intro"
@@ -50,6 +49,7 @@ type Step =
   | "wifi_form"
   | "ble_send"
   | "hub_wait"
+  | "hub_lan_scan"
   | "hub_ip"
   | "hub_register"
   | "wled_scan"
@@ -63,12 +63,12 @@ export default function SetupScreen() {
   const { token } = useAuth() as any;
   const { refreshHub } = useHub();
 
-  const [step, setStep]             = useState<Step>("intro");
-  const [statusMsg, setStatusMsg]   = useState("");
+  const [step, setStep]               = useState<Step>("intro");
+  const [statusMsg, setStatusMsg]     = useState("");
   const [foundDevice, setFoundDevice] = useState<Device | null>(null);
 
   // WiFi form
-  const [ssid, setSsid]       = useState("");
+  const [ssid, setSsid]         = useState("");
   const [wifiPass, setWifiPass] = useState("");
 
   // Hub registration
@@ -81,8 +81,24 @@ export default function SetupScreen() {
   const [foundDevices, setFoundDevices]     = useState<Array<{ ip: string; name: string }>>([]);
 
   const isMounted = useRef(true);
+
   useEffect(() => {
     isMounted.current = true;
+
+    // Load saved credentials + auto-detect SSID from current WiFi
+    (async () => {
+      const [savedSsid, savedPass] = await Promise.all([
+        AsyncStorage.getItem(STORAGE_SSID),
+        AsyncStorage.getItem(STORAGE_PASS),
+      ]);
+      const netInfo = await NetInfo.fetch();
+      const detectedSsid = (netInfo as any)?.details?.ssid as string | undefined;
+      if (isMounted.current) {
+        setSsid(detectedSsid || savedSsid || "");
+        if (savedPass) setWifiPass(savedPass);
+      }
+    })();
+
     return () => {
       isMounted.current = false;
       destroyBleManager();
@@ -100,9 +116,9 @@ export default function SetupScreen() {
   const startBleScan = useCallback(async () => {
     go("ble_scan", "Szukam huba w pobliżu…");
 
-    // Request permissions to show the system dialog on first run.
+    // Request permissions to show system dialog on first run.
     // We do NOT block on the result — OEM ROMs (MIUI etc.) return incorrect values.
-    // The BLE library itself will report a permission error (errorCode 102) if needed.
+    // The BLE library itself reports a permission error (errorCode 102) if truly missing.
     if (Platform.OS === "android") {
       const sdk = Platform.Version as number;
       if (sdk >= 31) {
@@ -159,10 +175,30 @@ export default function SetupScreen() {
     if (!isMounted.current) return;
 
     if (result.status === "ok") {
-      go("hub_wait", "Hub zapisał dane i restartuje się…");
-      // Give hub some time to reboot
-      await delay(5_000);
-      go("hub_ip");
+      // Save credentials for next time
+      await Promise.all([
+        AsyncStorage.setItem(STORAGE_SSID, ssid.trim()),
+        AsyncStorage.setItem(STORAGE_PASS, wifiPass),
+      ]);
+
+      go("hub_wait", "Hub zapisał dane WiFi i restartuje się…");
+      await delay(10_000); // give hub time to reboot and connect
+
+      go("hub_lan_scan", "Szukam huba w sieci lokalnej…");
+      const foundIp = await findHubOnLan(30_000);
+      if (!isMounted.current) return;
+
+      if (foundIp) {
+        setHubIpInput(foundIp);
+        await registerHubAt(foundIp);
+      } else {
+        Alert.alert(
+          "Nie znaleziono huba",
+          "Hub nie odpowiada w sieci. Wpisz adres IP ręcznie (sprawdź panel routera).",
+          [{ text: "OK" }],
+        );
+        go("hub_ip");
+      }
     } else {
       Alert.alert("Błąd BLE", result.message, [
         { text: "Spróbuj ponownie", onPress: () => go("wifi_form") },
@@ -170,18 +206,11 @@ export default function SetupScreen() {
     }
   }, [foundDevice, ssid, wifiPass, go]);
 
-  // ── Register hub in backend ───────────────────────────────────
-  const registerHub = useCallback(async () => {
-    const ip = hubIpInput.trim();
-    if (!ip) {
-      Alert.alert("Uzupełnij IP", "Wpisz adres IP huba (znajdziesz go w panelu routera).");
-      return;
-    }
-
+  // ── Register hub in backend (core logic) ─────────────────────
+  const registerHubAt = useCallback(async (ip: string) => {
     go("hub_register", "Sprawdzam połączenie z hubem…");
 
-    // Verify hub is reachable
-    const online = await waitForHubOnline(ip, 10_000, 1_500);
+    const online = await waitForHubOnline(ip, 15_000, 1_500);
     if (!online) {
       Alert.alert(
         "Hub niedostępny",
@@ -191,7 +220,6 @@ export default function SetupScreen() {
       return;
     }
 
-    // Register in backend
     try {
       await axios.post(
         `${API_URL}/hubs`,
@@ -206,7 +234,17 @@ export default function SetupScreen() {
       Alert.alert("Błąd rejestracji", e?.response?.data?.detail ?? e?.message ?? "Nieznany błąd");
       go("hub_ip");
     }
-  }, [hubIpInput, hubName, token, go, refreshHub]);
+  }, [hubName, token, go, refreshHub]);
+
+  // ── Register hub (manual IP fallback button) ─────────────────
+  const registerHub = useCallback(async () => {
+    const ip = hubIpInput.trim();
+    if (!ip) {
+      Alert.alert("Uzupełnij IP", "Wpisz adres IP huba (znajdziesz go w panelu routera).");
+      return;
+    }
+    await registerHubAt(ip);
+  }, [hubIpInput, registerHubAt]);
 
   // ── WLED scan + provision ─────────────────────────────────────
   const startWledScan = useCallback(async (ip: string) => {
@@ -239,7 +277,6 @@ export default function SetupScreen() {
       await startWledProvision(ip);
     } catch {}
 
-    // Poll until done (hub is briefly offline during provisioning)
     const status = await waitForProvision(ip, 120_000, 2_500);
     if (!isMounted.current) return;
 
@@ -252,7 +289,6 @@ export default function SetupScreen() {
       return;
     }
 
-    // LAN scan started automatically by hub after provisioning
     go("lan_scan", "Szukam urządzeń w sieci lokalnej…");
     const scan = await waitForLanScan(ip, 60_000, 2_500);
     if (!isMounted.current) return;
@@ -354,18 +390,31 @@ export default function SetupScreen() {
               <Text style={s.heading}>Hub się restartuje</Text>
               <Text style={s.body}>
                 Hub zapisał dane WiFi i restartuje się.{"\n\n"}
-                Poczekaj ~30 sekund, aż wskaźnik LED zmieni kolor.
+                Za chwilę automatycznie wyszukam go w sieci.
               </Text>
             </Card>
           )}
 
-          {/* ── HUB IP ── */}
+          {/* ── HUB LAN SCAN ── */}
+          {step === "hub_lan_scan" && (
+            <Card>
+              <ActivityIndicator size="large" color="#6366f1" style={s.icon} />
+              <Text style={s.heading}>Szukam huba w sieci</Text>
+              <Text style={s.body}>{statusMsg}</Text>
+              <Text style={s.hint}>
+                Hub właśnie dołączył do WiFi. To może zająć ~30 sekund.
+              </Text>
+            </Card>
+          )}
+
+          {/* ── HUB IP (fallback manual entry) ── */}
           {step === "hub_ip" && (
             <Card>
               <Ionicons name="globe-outline" size={48} color="#6366f1" style={s.icon} />
               <Text style={s.heading}>Adres IP huba</Text>
               <Text style={s.body}>
-                Znajdź adres IP huba w panelu swojego routera (lista podłączonych urządzeń, szukaj "DDP-Hub" lub "esp32").
+                Nie udało się automatycznie znaleźć huba. Wpisz adres IP ręcznie
+                (znajdziesz go w panelu routera — szukaj "DDP-Hub" lub "esp32").
               </Text>
               <Text style={s.label}>Nazwa huba</Text>
               <TextInput
@@ -456,16 +505,13 @@ export default function SetupScreen() {
                   {foundDevices.map((d, i) => (
                     <Text key={i} style={s.listItem}>{"📡 " + d.name + " (" + d.ip + ")"}</Text>
                   ))}
-                  <Text style={[s.hint, { marginTop: 8 }]}>
-                    Przejdź do zakładki "Urządzenia" i dodaj je ręcznie podając powyższe adresy IP.
-                  </Text>
                 </>
               )}
 
               {foundDevices.length === 0 && configuredWled.length === 0 && (
                 <Text style={s.body}>
                   Hub jest podłączony i gotowy do pracy.{"\n"}
-                  Możesz dodać urządzenia ręcznie w zakładce "Urządzenia".
+                  Możesz dodać urządzenia w zakładce "Urządzenia".
                 </Text>
               )}
 
@@ -481,20 +527,17 @@ export default function SetupScreen() {
 // ─── Sub-components ───────────────────────────────────────────
 const STEPS: Step[] = [
   "intro", "ble_scan", "wifi_form", "ble_send",
-  "hub_wait", "hub_ip", "hub_register",
+  "hub_wait", "hub_lan_scan", "hub_ip", "hub_register",
   "wled_scan", "wled_provision", "lan_scan", "done",
 ];
 
 function StepIndicator({ step }: { step: Step }) {
-  const idx  = STEPS.indexOf(step);
+  const idx   = STEPS.indexOf(step);
   const total = STEPS.length - 1;
   return (
     <View style={s.stepRow}>
       {STEPS.slice(0, total).map((_, i) => (
-        <View
-          key={i}
-          style={[s.stepDot, i <= idx && s.stepDotActive]}
-        />
+        <View key={i} style={[s.stepDot, i <= idx && s.stepDotActive]} />
       ))}
     </View>
   );
@@ -523,8 +566,8 @@ const s = StyleSheet.create({
   header:  { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20 },
   title:   { color: "#f1f5f9", fontSize: 18, fontWeight: "700" },
 
-  stepRow: { flexDirection: "row", justifyContent: "center", gap: 6, marginBottom: 24 },
-  stepDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#334155" },
+  stepRow:       { flexDirection: "row", justifyContent: "center", gap: 6, marginBottom: 24 },
+  stepDot:       { width: 8, height: 8, borderRadius: 4, backgroundColor: "#334155" },
   stepDotActive: { backgroundColor: "#6366f1" },
 
   card:    { backgroundColor: "#1e293b", borderRadius: 16, padding: 24, gap: 12 },
