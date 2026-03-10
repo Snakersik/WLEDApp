@@ -77,14 +77,17 @@ static String b64decode(const std::string& input) {
 
 class SsidCB : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c) override {
-    _bleSsid = b64decode(c->getValue());
+    // ble-plx decodes base64 before sending — hub receives raw UTF-8 bytes
+    std::string v = c->getValue();
+    _bleSsid = String(v.c_str(), v.length());
     Serial.printf("[BLE] SSID received: %s\n", _bleSsid.c_str());
   }
 };
 
 class PassCB : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c) override {
-    _blePass = b64decode(c->getValue());
+    std::string v = c->getValue();
+    _blePass = String(v.c_str(), v.length());
     Serial.println("[BLE] PASS received — saving wifi.json");
     if (!_bleSsid.length()) return;
 
