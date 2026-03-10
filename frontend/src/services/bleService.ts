@@ -19,6 +19,12 @@ const HUB_DEVICE_NAME = 'WLED-Hub';
 const IPV4_RE =
   /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
+function fetchWithTimeout(url: string, ms: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
 let _manager: BleManager | null = null;
 
 function getManager(): BleManager {
@@ -173,7 +179,7 @@ export async function waitForHubOnline(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`http://${host}/json/info`, { signal: AbortSignal.timeout(1_500) });
+      const res = await fetchWithTimeout(`http://${host}/json/info`, 1_500);
       if (res.ok) return true;
     } catch {}
     await delay(intervalMs);
@@ -211,9 +217,7 @@ export async function waitForProvision(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`http://${hubIp}/api/provision-status`, {
-        signal: AbortSignal.timeout(2_000),
-      });
+      const res = await fetchWithTimeout(`http://${hubIp}/api/provision-status`, 2_000);
       const json: ProvisionStatus = await res.json();
       if (json.done) return json;
     } catch {
@@ -245,9 +249,7 @@ export async function waitForLanScan(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`http://${hubIp}/api/scan-status`, {
-        signal: AbortSignal.timeout(2_000),
-      });
+      const res = await fetchWithTimeout(`http://${hubIp}/api/scan-status`, 2_000);
       const json: ScanStatus = await res.json();
       if (json.done) return json;
     } catch {}
