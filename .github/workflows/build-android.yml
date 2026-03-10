@@ -49,6 +49,7 @@ jobs:
         working-directory: frontend/android
         env:
           EXPO_PUBLIC_BACKEND_URL: ${{ github.event.inputs.backend_url }}
+          NODE_ENV: production
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK
