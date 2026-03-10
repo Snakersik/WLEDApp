@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + "/api";
+const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.10.42:8002") + "/api";
 
 interface User {
   id: string;

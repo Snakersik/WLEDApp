@@ -141,7 +141,7 @@ export const NIGHT_MODE_DEFAULTS = {
 // src/features/deviceControl/constants.ts
 
 // DEV backend URL (z .env)
-export const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL ?? "";
+export const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.10.42:8002";
 
 // final API url
 export const API_URL = API_BASE ? `${API_BASE}/api` : "";

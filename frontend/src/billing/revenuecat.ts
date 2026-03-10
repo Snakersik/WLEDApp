@@ -3,7 +3,7 @@ import Purchases, { LOG_LEVEL, CustomerInfo } from "react-native-purchases";
 import RevenueCatUI, { PAYWALL_RESULT } from "react-native-purchases-ui";
 import axios from "axios";
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + "/api";
+const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.10.42:8002") + "/api";
 
 // ⚠️ U Ciebie ten sam key jest dla obu platform (test), zostawiamy:
 const IOS_API_KEY = "test_SvvPSfrXBKDMJribVcEQVwibTiD";
