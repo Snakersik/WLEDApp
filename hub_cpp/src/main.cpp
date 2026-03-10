@@ -4,7 +4,6 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
-#include <mbedtls/base64.h>
 #include "config.h"
 #include "effects.h"
 #include "scheduler.h"
@@ -59,50 +58,56 @@ static bool connectWifi() {
 }
 
 // ── BLE provisioning ───────────────────────────────────────────
-#define BLE_SVC_UUID  "12340000-1234-1234-1234-123456789012"
-#define BLE_SSID_UUID "12340001-1234-1234-1234-123456789012"
-#define BLE_PASS_UUID "12340002-1234-1234-1234-123456789012"
-#define BLE_IP_UUID   "12340003-1234-1234-1234-123456789012"
+#define BLE_SVC_UUID    "12340000-1234-1234-1234-123456789012"
+#define BLE_CONFIG_UUID "12340001-1234-1234-1234-123456789012"
+#define BLE_STATUS_UUID "12340002-1234-1234-1234-123456789012"
 
-static String _bleSsid, _blePass;
-static NimBLECharacteristic* _ipChar = nullptr;
+static NimBLECharacteristic* _statusChar = nullptr;
 
-static String b64decode(const std::string& input) {
-  size_t olen = 0;
-  unsigned char buf[256] = {};
-  mbedtls_base64_decode(buf, sizeof(buf), &olen,
-    (const unsigned char*)input.c_str(), input.size());
-  return String((char*)buf, olen);
-}
-
-class SsidCB : public NimBLECharacteristicCallbacks {
+class ConfigCB : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c) override {
-    // ble-plx decodes base64 before sending — hub receives raw UTF-8 bytes
-    std::string v = c->getValue();
-    _bleSsid = String(v.c_str(), v.length());
-    Serial.printf("[BLE] SSID received: %s\n", _bleSsid.c_str());
-  }
-};
-
-class PassCB : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* c) override {
-    std::string v = c->getValue();
-    _blePass = String(v.c_str(), v.length());
-    Serial.println("[BLE] PASS received — saving wifi.json");
-    if (!_bleSsid.length()) return;
-
-    // Save wifi.json synchronously (fast, no blocking)
+    std::string raw = c->getValue();
     JsonDocument doc;
-    doc["ssid"] = _bleSsid;
-    doc["password"] = _blePass;
-    File f = LittleFS.open("/wifi.json", "w");
-    if (f) { serializeJson(doc, f); f.close(); }
+    if (deserializeJson(doc, raw) != DeserializationError::Ok) return;
 
-    // Spawn FreeRTOS task so callback returns immediately → ATT Write Response sent promptly
-    xTaskCreate([](void*) {
-      Serial.printf("[BLE] Connecting to WiFi: %s\n", _bleSsid.c_str());
+    const char* cmd = doc["cmd"];
+    if (!cmd || strcmp(cmd, "provision_wifi") != 0) return;
+
+    const char* ssid = doc["ssid"];
+    const char* pass = doc["password"];
+    if (!ssid || !pass) return;
+
+    Serial.printf("[BLE] Provisioning WiFi: %s\n", ssid);
+
+    // Save wifi.json synchronously (fast, before callback returns)
+    {
+      JsonDocument wifiDoc;
+      wifiDoc["ssid"] = ssid;
+      wifiDoc["password"] = pass;
+      File f = LittleFS.open("/wifi.json", "w");
+      if (f) { serializeJson(wifiDoc, f); f.close(); }
+    }
+
+    // Notify "connecting" immediately so app knows the command was received
+    if (_statusChar) {
+      _statusChar->setValue("{\"state\":\"connecting\"}");
+      _statusChar->notify();
+    }
+
+    // Heap-copy ssid/pass — xTaskCreate lambda needs them after callback returns
+    char** args = (char**)malloc(2 * sizeof(char*));
+    args[0] = strdup(ssid);
+    args[1] = strdup(pass);
+
+    xTaskCreate([](void* arg) {
+      char** a = (char**)arg;
+      char* ssid = a[0];
+      char* pass = a[1];
+
       WiFi.mode(WIFI_STA);
-      WiFi.begin(_bleSsid.c_str(), _blePass.c_str());
+      WiFi.begin(ssid, pass);
+      free(ssid); free(pass); free(a);
+
       unsigned long start = millis();
       while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
         delay(200);
@@ -110,17 +115,24 @@ class PassCB : public NimBLECharacteristicCallbacks {
       if (WiFi.status() == WL_CONNECTED) {
         String ip = WiFi.localIP().toString();
         Serial.printf("[BLE] WiFi OK — IP: %s\n", ip.c_str());
-        if (_ipChar) { _ipChar->setValue(ip.c_str()); _ipChar->notify(); }
+        if (_statusChar) {
+          String msg = "{\"state\":\"success\",\"ip\":\"" + ip + "\"}";
+          _statusChar->setValue(msg.c_str());
+          _statusChar->notify();
+        }
         delay(2000);
       } else {
-        Serial.println("[BLE] WiFi failed — notifying ERROR");
-        if (_ipChar) { _ipChar->setValue("ERROR"); _ipChar->notify(); }
+        Serial.println("[BLE] WiFi failed");
+        if (_statusChar) {
+          _statusChar->setValue("{\"state\":\"error\",\"reason\":\"wifi_failed\"}");
+          _statusChar->notify();
+        }
         delay(500);
       }
       Serial.println("[BLE] Rebooting...");
       ESP.restart();
       vTaskDelete(nullptr);
-    }, "ble_wifi", 8192, nullptr, 1, nullptr);
+    }, "ble_wifi", 8192, args, 1, nullptr);
   }
 };
 
@@ -129,17 +141,14 @@ static void startBLE() {
   NimBLEServer* srv = NimBLEDevice::createServer();
   NimBLEService* svc = srv->createService(BLE_SVC_UUID);
 
-  auto* ssidChar = svc->createCharacteristic(BLE_SSID_UUID, NIMBLE_PROPERTY::WRITE);
-  ssidChar->setCallbacks(new SsidCB());
+  auto* configChar = svc->createCharacteristic(BLE_CONFIG_UUID, NIMBLE_PROPERTY::WRITE);
+  configChar->setCallbacks(new ConfigCB());
 
-  auto* passChar = svc->createCharacteristic(BLE_PASS_UUID, NIMBLE_PROPERTY::WRITE);
-  passChar->setCallbacks(new PassCB());
-
-  _ipChar = svc->createCharacteristic(
-    BLE_IP_UUID,
+  _statusChar = svc->createCharacteristic(
+    BLE_STATUS_UUID,
     NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
   );
-  _ipChar->setValue("");
+  _statusChar->setValue("{\"state\":\"idle\"}");
 
   svc->start();
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();

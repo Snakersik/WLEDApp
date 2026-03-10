@@ -216,22 +216,19 @@ export default function SetupScreen() {
         AsyncStorage.setItem(STORAGE_PASS, wifiPass),
       ]);
 
-      // Validate IP — BLE notify can be corrupted due to BLE/WiFi radio coexistence on ESP32
-      const ipValid = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(result.ip);
-      if (ipValid) {
-        setHubIpInput(result.ip);
-        await registerHubAt(result.ip);
+      // JSON protocol guarantees result.ip is a valid IP
+      setHubIpInput(result.ip);
+      await registerHubAt(result.ip);
+    } else if (result.message?.includes("Timeout")) {
+      // Hub may have connected but STATUS notify was lost — try LAN scan as fallback
+      go("hub_lan_scan", "Hub mógł się połączyć z WiFi. Szukam go w sieci…");
+      const foundIp = await findHubOnLan(30_000);
+      if (!isMounted.current) return;
+      if (foundIp) {
+        setHubIpInput(foundIp);
+        await registerHubAt(foundIp);
       } else {
-        // Garbled IP — scan LAN to find the hub
-        go("hub_lan_scan", "Hub połączony z WiFi. Szukam go w sieci…");
-        const foundIp = await findHubOnLan(30_000);
-        if (!isMounted.current) return;
-        if (foundIp) {
-          setHubIpInput(foundIp);
-          await registerHubAt(foundIp);
-        } else {
-          go("hub_ip");
-        }
+        go("hub_ip");
       }
     } else {
       Alert.alert("Błąd BLE", result.message, [
