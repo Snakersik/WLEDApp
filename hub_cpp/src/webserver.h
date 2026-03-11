@@ -32,7 +32,7 @@ static void scanTask(void*) {
     String ip  = String(b0)+"."+String(b1)+"."+String(b2)+"."+String(i);
     String url = "http://" + ip + "/json/info";
     http.begin(client, url);
-    http.setTimeout(800);
+    http.setTimeout(400);
     int code = http.GET();
     if (code == 200) {
       String body = http.getString();
@@ -166,8 +166,8 @@ static void provisionTask(void*) {
 
   // Trigger LAN scan after WLED devices have time to boot and join network
   // WLED takes ~20-30s to reboot and get DHCP lease
-  Serial.println("[PROV] Waiting 35s for WLED devices to join network...");
-  delay(35000);
+  Serial.println("[PROV] Waiting 20s for WLED devices to join network...");
+  delay(20000);
   if (!g_scanRunning) {
     g_scanRunning = true;
     xTaskCreate(scanTask, "scan_post_prov", 8192, nullptr, 1, nullptr);
