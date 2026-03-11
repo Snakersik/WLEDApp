@@ -4,6 +4,60 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
+#include <WiFiClient.h>
+
+// ── LAN scan state ────────────────────────────────────────────
+struct ScanEntry { String name; String ip; };
+static std::vector<ScanEntry> g_scanFound;
+static volatile bool g_scanRunning = false;
+static volatile bool g_scanDone    = false;
+
+static void scanTask(void*) {
+  g_scanFound.clear();
+  g_scanDone = false;
+
+  IPAddress local  = WiFi.localIP();
+  IPAddress mask   = WiFi.subnetMask();
+  // Build subnet base (works for /24 which is typical home network)
+  uint8_t b0 = local[0] & mask[0];
+  uint8_t b1 = local[1] & mask[1];
+  uint8_t b2 = local[2] & mask[2];
+
+  WiFiClient client;
+  HTTPClient http;
+  for (int i = 1; i <= 254 && g_scanRunning; i++) {
+    uint8_t host = local[3] == i ? 0 : i; // skip self
+    if (!host) continue;
+    String ip  = String(b0)+"."+String(b1)+"."+String(b2)+"."+String(i);
+    String url = "http://" + ip + "/json/info";
+    http.begin(client, url);
+    http.setTimeout(800);
+    int code = http.GET();
+    if (code == 200) {
+      String body = http.getString();
+      // WLED responds with {"leds":{...},"ver":"...",...}
+      if (body.indexOf("\"leds\"") >= 0) {
+        JsonDocument doc;
+        String name = ip;
+        if (deserializeJson(doc, body) == DeserializationError::Ok) {
+          name = doc["name"] | ip.c_str();
+        }
+        // Skip ourselves (hub)
+        if (name != "DDP Hub") {
+          g_scanFound.push_back({ name, ip });
+          Serial.printf("[SCAN] WLED: %s @ %s\n", name.c_str(), ip.c_str());
+        }
+      }
+    }
+    http.end();
+    delay(5);
+  }
+  g_scanDone    = true;
+  g_scanRunning = false;
+  Serial.printf("[SCAN] done, found %d device(s)\n", g_scanFound.size());
+  vTaskDelete(nullptr);
+}
 
 static AsyncWebServer _srv(80);
 
@@ -407,6 +461,28 @@ void setupServer() {
       }
     }
     sendErr(req, "not found", 404);
+  });
+
+  // POST /api/scan-devices — trigger async LAN scan for WLED devices
+  _srv.on("/api/scan-devices", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (g_scanRunning) { sendOk(req); return; } // already running
+    g_scanRunning = true;
+    xTaskCreate(scanTask, "scan_wled", 8192, nullptr, 1, nullptr);
+    sendOk(req);
+  });
+
+  // GET /api/scan-status — poll results
+  _srv.on("/api/scan-status", HTTP_GET, [](AsyncWebServerRequest* req) {
+    JsonDocument doc;
+    doc["running"] = (bool)g_scanRunning;
+    doc["done"]    = (bool)g_scanDone;
+    JsonArray arr  = doc["found"].to<JsonArray>();
+    for (auto& e : g_scanFound) {
+      JsonObject o = arr.add<JsonObject>();
+      o["name"] = e.name;
+      o["ip"]   = e.ip;
+    }
+    sendJson(req, doc);
   });
 
   // POST /restart — reboot the hub
