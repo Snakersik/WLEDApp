@@ -360,7 +360,7 @@ export default function SetupScreen() {
   const startWledScan = useCallback(async (ip: string) => {
     go("wled_scan", "Szukam sieci WLED-AP w pobliżu…");
 
-    let aps: string[] = [];
+    let aps: Awaited<ReturnType<typeof scanForWledAps>> = [];
     try {
       aps = await scanForWledAps(ip);
     } catch {
@@ -368,6 +368,8 @@ export default function SetupScreen() {
     }
 
     if (!isMounted.current) return;
+
+    addDebug(`[WLED-AP] znaleziono ${aps.length}: ${aps.map(a => `${a.ssid}(${a.bssid})`).join(', ') || '—'}`);
 
     if (aps.length === 0) {
       Alert.alert(

@@ -85,7 +85,8 @@ static void scanTask(void*) {
 }
 
 // ── WLED AP provisioning state ────────────────────────────────
-struct ProvEntry { String ap; String ip; };
+struct WledApEntry { String ssid; uint8_t bssid[6]; int channel; String bssidStr; };
+struct ProvEntry { String ap; String ip; String bssid; };
 static std::vector<ProvEntry> g_provConfigured;
 static volatile bool g_provRunning = false;
 static volatile bool g_provDone    = false;
@@ -108,21 +109,26 @@ static void provisionTask(void*) {
     g_provDone = true; g_provRunning = false; vTaskDelete(nullptr); return;
   }
 
-  // Scan WiFi for WLED APs (blocking ~2s is fine inside task)
-  // Deduplicate by BSSID — ESP32 scan often returns same AP multiple times
+  // Scan WiFi for WLED APs — store BSSID+channel to connect to specific device
   int n = WiFi.scanNetworks(false, false);
-  std::vector<String> wledAps;
+  std::vector<WledApEntry> wledAps;
   std::vector<String> seenBssids;
   for (int i = 0; i < n; i++) {
-    String ssid  = WiFi.SSID(i);
-    String bssid = WiFi.BSSIDstr(i);
+    String ssid     = WiFi.SSID(i);
+    String bssidStr = WiFi.BSSIDstr(i);
     if (ssid.startsWith("WLED") || ssid.indexOf("wled") >= 0) {
       bool dup = false;
-      for (auto& b : seenBssids) { if (b == bssid) { dup = true; break; } }
+      for (auto& b : seenBssids) { if (b == bssidStr) { dup = true; break; } }
       if (!dup) {
-        seenBssids.push_back(bssid);
-        wledAps.push_back(ssid);
-        Serial.printf("[PROV] Found AP: %s (%s)\n", ssid.c_str(), bssid.c_str());
+        seenBssids.push_back(bssidStr);
+        WledApEntry e;
+        e.ssid    = ssid;
+        e.channel = WiFi.channel(i);
+        e.bssidStr = bssidStr;
+        const uint8_t* b = WiFi.BSSID(i);
+        memcpy(e.bssid, b, 6);
+        wledAps.push_back(e);
+        Serial.printf("[PROV] Found AP: %s (%s) ch=%d\n", ssid.c_str(), bssidStr.c_str(), e.channel);
       }
     }
   }
@@ -131,17 +137,20 @@ static void provisionTask(void*) {
   WiFiClient client;
   HTTPClient http;
 
-  for (auto& ap : wledAps) {
+  for (auto& entry : wledAps) {
     if (!g_provRunning) break;
-    Serial.printf("[PROV] Connecting to %s\n", ap.c_str());
+    Serial.printf("[PROV] Connecting to %s (%s) ch=%d\n",
+                  entry.ssid.c_str(), entry.bssidStr.c_str(), entry.channel);
 
     WiFi.disconnect(true); delay(300);
     WiFi.mode(WIFI_STA);
-    WiFi.begin(ap.c_str(), "wled1234"); // default WLED AP password
+    // Connect by BSSID+channel — targets the specific physical device, not just any SSID match
+    WiFi.begin(entry.ssid.c_str(), "wled1234", entry.channel, entry.bssid, true);
     unsigned long t0 = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - t0 < 12000) delay(200);
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.printf("[PROV] Could not connect to %s\n", ap.c_str());
+      Serial.printf("[PROV] Could not connect to %s (%s)\n",
+                    entry.ssid.c_str(), entry.bssidStr.c_str());
       continue;
     }
     Serial.printf("[PROV] Connected, sending WiFi config\n");
@@ -179,7 +188,7 @@ static void provisionTask(void*) {
 
     if (code > 0) {
       delay(3000); // wait for WLED to finish serializeConfig() before we disconnect
-      g_provConfigured.push_back({ ap, "4.3.2.1" });
+      g_provConfigured.push_back({ entry.ssid, "4.3.2.1", entry.bssidStr });
     }
     WiFi.disconnect(true); delay(300);
   }
@@ -630,7 +639,13 @@ void setupServer() {
       if (s.startsWith("WLED") || s.indexOf("wled") >= 0) {
         bool dup = false;
         for (auto& x : seen) { if (x == b) { dup = true; break; } }
-        if (!dup) { seen.push_back(b); aps.add(s); }
+        if (!dup) {
+          seen.push_back(b);
+          JsonObject o = aps.add<JsonObject>();
+          o["ssid"]    = s;
+          o["bssid"]   = b;
+          o["channel"] = WiFi.channel(i);
+        }
       }
     }
     WiFi.scanDelete();
@@ -654,7 +669,7 @@ void setupServer() {
     JsonArray arr  = doc["configured"].to<JsonArray>();
     for (auto& e : g_provConfigured) {
       JsonObject o = arr.add<JsonObject>();
-      o["ap"] = e.ap; o["ip"] = e.ip; o["mac"] = "";
+      o["ap"] = e.ap; o["ip"] = e.ip; o["mac"] = e.bssid;
     }
     sendJson(req, doc);
   });

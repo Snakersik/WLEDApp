@@ -204,8 +204,10 @@ export async function waitForHubOnline(
   return false;
 }
 
-/** Trigger WLED-AP scan on hub. Returns list of WLED-AP SSIDs. */
-export async function scanForWledAps(hubIp: string): Promise<string[]> {
+export interface WledApInfo { ssid: string; bssid: string; channel: number; }
+
+/** Trigger WLED-AP scan on hub. Returns list of WLED-AP entries with ssid/bssid/channel. */
+export async function scanForWledAps(hubIp: string): Promise<WledApInfo[]> {
   const res = await fetch(`http://${hubIp}/api/scan-wled`);
   const json = await res.json();
   return json.aps ?? [];

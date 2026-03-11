@@ -3,6 +3,7 @@
  * przez jego WLED-kompatybilne API.
  * NIE idzie przez backend.
  */
+import type { WledApInfo } from './bleService';
 
 export interface HubLedState {
   on: boolean;
@@ -268,7 +269,7 @@ export const HubService = {
     }
   },
 
-  async getWledAps(ip: string): Promise<string[]> {
+  async getWledAps(ip: string): Promise<WledApInfo[]> {
     try {
       const res = await fetchWithTimeout(`http://${ip}/api/scan-wled`, {}, 10_000);
       if (!res.ok) return [];
