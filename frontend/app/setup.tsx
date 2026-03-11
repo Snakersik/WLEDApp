@@ -57,7 +57,10 @@ type Step =
   | "wled_scan"
   | "wled_provision"
   | "lan_scan"
+  | "device_names"
   | "done";
+
+const LOCATIONS = ["Salon", "Sypialnia", "Kuchnia", "Łazienka", "Korytarz", "Gabinet", "Inne"];
 
 // ─────────────────────────────────────────────────────────────
 export default function SetupScreen() {
@@ -83,6 +86,7 @@ export default function SetupScreen() {
   // Results
   const [configuredWled, setConfiguredWled] = useState<string[]>([]);
   const [foundDevices, setFoundDevices]     = useState<Array<{ ip: string; name: string }>>([]);
+  const [deviceForms, setDeviceForms]       = useState<Array<{ ip: string; name: string; location: string }>>([]);
 
   // Debug log
   const [debugMsg, setDebugMsg] = useState("");
@@ -434,12 +438,25 @@ export default function SetupScreen() {
 
     setFoundDevices(foundDevices);
 
-    for (const d of foundDevices) {
+    if (foundDevices.length === 0) {
+      go("done");
+      return;
+    }
+
+    // Let user name devices and pick locations before registering
+    setDeviceForms(foundDevices.map(d => ({ ip: d.ip, name: d.name || 'WLED Device', location: '' })));
+    go("device_names", "");
+  }, [go]);
+
+  // ── Register devices with chosen names/locations ──────────────
+  const registerDevices = useCallback(async () => {
+    go("done");
+    for (const d of deviceForms) {
       addDebug(`[REG] Rejestruję ${d.name} @ ${d.ip}…`);
       try {
         await axios.post(
           `${API_URL}/devices`,
-          { name: d.name || 'WLED Device', ip_address: d.ip, led_count: 30 },
+          { name: d.name || 'WLED Device', ip_address: d.ip, led_count: 30, location: d.location || undefined },
           { headers: { Authorization: `Bearer ${token}` }, timeout: 8_000 },
         );
         addDebug(`[REG] OK — ${d.name}`);
@@ -447,9 +464,8 @@ export default function SetupScreen() {
         addDebug(`[REG] Błąd: ${e?.response?.status ?? e?.message ?? 'unknown'}`);
       }
     }
-
-    go("done");
-  }, [go]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceForms, token, go, addDebug]);
 
   // ─── Render ───────────────────────────────────────────────────
   return (
@@ -668,6 +684,52 @@ export default function SetupScreen() {
             </Card>
           )}
 
+          {/* ── DEVICE NAMES ── */}
+          {step === "device_names" && (
+            <Card>
+              <Ionicons name="pencil-outline" size={48} color="#6366f1" style={s.icon} />
+              <Text style={s.heading}>Nazwij urządzenia</Text>
+              <Text style={s.body}>
+                Znaleziono {deviceForms.length} {deviceForms.length === 1 ? "urządzenie" : "urządzenia/-ń"}.{"\n"}
+                Podaj nazwy i wybierz pomieszczenia.
+              </Text>
+
+              {deviceForms.map((form, idx) => (
+                <View key={form.ip} style={s.deviceFormCard}>
+                  <Text style={s.deviceFormIp}>📡 {form.ip}</Text>
+                  <Text style={s.label}>Nazwa</Text>
+                  <TextInput
+                    style={s.input}
+                    value={form.name}
+                    onChangeText={(v) =>
+                      setDeviceForms(prev => prev.map((d, i) => i === idx ? { ...d, name: v } : d))
+                    }
+                    placeholder="np. Kinkiet salon"
+                    placeholderTextColor="#475569"
+                  />
+                  <Text style={s.label}>Pomieszczenie</Text>
+                  <View style={s.chipRow}>
+                    {LOCATIONS.map(loc => (
+                      <TouchableOpacity
+                        key={loc}
+                        style={[s.chip, form.location === loc && s.chipSelected]}
+                        onPress={() =>
+                          setDeviceForms(prev => prev.map((d, i) =>
+                            i === idx ? { ...d, location: d.location === loc ? '' : loc } : d
+                          ))
+                        }
+                      >
+                        <Text style={[s.chipText, form.location === loc && s.chipTextSelected]}>{loc}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              ))}
+
+              <PrimaryBtn label="Dodaj urządzenia" onPress={registerDevices} />
+            </Card>
+          )}
+
           {/* ── DONE ── */}
           {step === "done" && (
             <Card>
@@ -719,7 +781,7 @@ export default function SetupScreen() {
 const STEPS: Step[] = [
   "intro", "ble_scan", "wifi_form", "ble_send",
   "hub_wait", "hub_lan_scan", "hub_ip", "hub_register",
-  "wled_scan", "wled_provision", "lan_scan", "done",
+  "wled_scan", "wled_provision", "lan_scan", "device_names", "done",
 ];
 
 function StepIndicator({ step }: { step: Step }) {
@@ -797,4 +859,12 @@ const s = StyleSheet.create({
   debugPanel: { marginTop: 24, backgroundColor: "#0f172a", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#334155" },
   debugTitle:  { color: "#64748b", fontSize: 11, fontWeight: "700", marginBottom: 6, textTransform: "uppercase" },
   debugText:   { color: "#475569", fontSize: 11, fontFamily: "monospace", lineHeight: 16 },
+
+  deviceFormCard: { backgroundColor: "#0f172a", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "#334155", gap: 4 },
+  deviceFormIp:   { color: "#64748b", fontSize: 12, fontFamily: "monospace" },
+  chipRow:        { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  chip:           { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: "#334155", backgroundColor: "#1e293b" },
+  chipSelected:   { borderColor: "#6366f1", backgroundColor: "#1e1b4b" },
+  chipText:       { color: "#94a3b8", fontSize: 13 },
+  chipTextSelected: { color: "#a5b4fc", fontWeight: "700" },
 });
