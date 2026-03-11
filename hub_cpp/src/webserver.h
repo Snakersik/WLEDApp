@@ -586,29 +586,30 @@ void setupServer() {
   });
 
   // GET /api/scan-wled — WiFi scan for WLED AP SSIDs.
-  // WiFi.scanNetworks() blocks ~3s — NEVER call it in handler context (kills async_tcp WDT).
-  // Instead: spawn a task, respond async when done. Request pointer stays valid until send().
+  // Use async scan + esp_task_wdt_reset() to avoid blocking async_tcp WDT
+  // AND avoid use-after-free (xTaskCreate + req->send() crashes if client disconnects
+  // before the task finishes — ESPAsyncWebServer frees req on disconnect).
   _srv.on("/api/scan-wled", HTTP_GET, [](AsyncWebServerRequest* req) {
-    xTaskCreate([](void* arg) {
-      AsyncWebServerRequest* r = (AsyncWebServerRequest*)arg;
-      int n = WiFi.scanNetworks(false, false);
-      JsonDocument doc;
-      JsonArray aps = doc["aps"].to<JsonArray>();
-      std::vector<String> seen;
-      for (int i = 0; i < n; i++) {
-        String s = WiFi.SSID(i);
-        String b = WiFi.BSSIDstr(i);
-        if (s.startsWith("WLED") || s.indexOf("wled") >= 0) {
-          bool dup = false;
-          for (auto& x : seen) { if (x == b) { dup = true; break; } }
-          if (!dup) { seen.push_back(b); aps.add(s); }
-        }
+    WiFi.scanNetworks(true); // start async scan, returns immediately
+    while (WiFi.scanComplete() == WIFI_SCAN_RUNNING) {
+      esp_task_wdt_reset();              // feed WDT so async_tcp doesn't die
+      vTaskDelay(pdMS_TO_TICKS(100));   // yield to other tasks
+    }
+    int n = WiFi.scanComplete();
+    JsonDocument doc;
+    JsonArray aps = doc["aps"].to<JsonArray>();
+    std::vector<String> seen;
+    for (int i = 0; i < n; i++) {
+      String s = WiFi.SSID(i);
+      String b = WiFi.BSSIDstr(i);
+      if (s.startsWith("WLED") || s.indexOf("wled") >= 0) {
+        bool dup = false;
+        for (auto& x : seen) { if (x == b) { dup = true; break; } }
+        if (!dup) { seen.push_back(b); aps.add(s); }
       }
-      WiFi.scanDelete();
-      String out; serializeJson(doc, out);
-      r->send(200, "application/json", out);
-      vTaskDelete(nullptr);
-    }, "wled_scan", 8192, req, 1, nullptr);
+    }
+    WiFi.scanDelete();
+    sendJson(req, doc);
   });
 
   // POST /api/provision-wled — start async provisioning of all found WLED APs
