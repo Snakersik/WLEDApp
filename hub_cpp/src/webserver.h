@@ -583,23 +583,30 @@ void setupServer() {
     sendErr(req, "not found", 404);
   });
 
-  // GET /api/scan-wled — WiFi scan for WLED AP SSIDs (~2s blocking in handler task)
+  // GET /api/scan-wled — WiFi scan for WLED AP SSIDs.
+  // WiFi.scanNetworks() blocks ~3s — NEVER call it in handler context (kills async_tcp WDT).
+  // Instead: spawn a task, respond async when done. Request pointer stays valid until send().
   _srv.on("/api/scan-wled", HTTP_GET, [](AsyncWebServerRequest* req) {
-    int n = WiFi.scanNetworks(false, false);
-    JsonDocument doc;
-    JsonArray aps = doc["aps"].to<JsonArray>();
-    std::vector<String> seen;
-    for (int i = 0; i < n; i++) {
-      String s = WiFi.SSID(i);
-      String b = WiFi.BSSIDstr(i);
-      if (s.startsWith("WLED") || s.indexOf("wled") >= 0) {
-        bool dup = false;
-        for (auto& x : seen) { if (x == b) { dup = true; break; } }
-        if (!dup) { seen.push_back(b); aps.add(s); }
+    xTaskCreate([](void* arg) {
+      AsyncWebServerRequest* r = (AsyncWebServerRequest*)arg;
+      int n = WiFi.scanNetworks(false, false);
+      JsonDocument doc;
+      JsonArray aps = doc["aps"].to<JsonArray>();
+      std::vector<String> seen;
+      for (int i = 0; i < n; i++) {
+        String s = WiFi.SSID(i);
+        String b = WiFi.BSSIDstr(i);
+        if (s.startsWith("WLED") || s.indexOf("wled") >= 0) {
+          bool dup = false;
+          for (auto& x : seen) { if (x == b) { dup = true; break; } }
+          if (!dup) { seen.push_back(b); aps.add(s); }
+        }
       }
-    }
-    WiFi.scanDelete();
-    sendJson(req, doc);
+      WiFi.scanDelete();
+      String out; serializeJson(doc, out);
+      r->send(200, "application/json", out);
+      vTaskDelete(nullptr);
+    }, "wled_scan", 8192, req, 1, nullptr);
   });
 
   // POST /api/provision-wled — start async provisioning of all found WLED APs
