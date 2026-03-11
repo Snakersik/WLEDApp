@@ -127,8 +127,9 @@ static void provisionTask(void*) {
       }
       return out;
     };
-    String body = "CS=" + urlEncode(mainSsid) + "&CP=" + urlEncode(mainPass);
-    // NOTE: do NOT add &S=1 — in WLED "S" is the static subnet field, not "save"
+    // CS, CP + preserve AP settings (omitting AP2 would clear it to "" in WLED)
+    String body = "CS=" + urlEncode(mainSsid) + "&CP=" + urlEncode(mainPass)
+                + "&AP=WLED-AP&AP2=wled1234";
     Serial.printf("[PROV] Sending: CS=%s (pass len=%d)\n", mainSsid.c_str(), mainPass.length());
     http.begin(client, "http://4.3.2.1/settings/wifi");
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -136,14 +137,12 @@ static void provisionTask(void*) {
     int code = http.POST(body);
     http.end();
     Serial.printf("[PROV] settings/wifi → %d\n", code);
+    // NOTE: do NOT send {"rb":true} after this — WLED auto-reboots after /settings/wifi.
+    // A second explicit reboot before flash write completes corrupts wled_cfg.json
+    // and causes ESP-XXXXXX fallback AP instead of normal WLED-AP / home WiFi join.
 
     if (code > 0) {
-      // Reboot WLED so it connects to home network
-      http.begin(client, "http://4.3.2.1/json/state");
-      http.addHeader("Content-Type", "application/json");
-      http.setTimeout(3000);
-      http.POST("{\"rb\":true}");
-      http.end();
+      delay(3000); // wait for WLED to finish serializeConfig() before we disconnect
       g_provConfigured.push_back({ ap, "4.3.2.1" });
     }
     WiFi.disconnect(true); delay(300);
