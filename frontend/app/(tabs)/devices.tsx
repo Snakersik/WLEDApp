@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -23,7 +23,7 @@ import { useLanguage } from "../../src/context/LanguageContext";
 import { useHub } from "../../src/context/HubContext";
 import { HubService } from "../../src/services/hubService";
 import axios from "axios";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
   WLEDDiscovery,
   DiscoveredDevice,
@@ -274,10 +274,10 @@ export default function DevicesScreen() {
     return map;
   }, [groups]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     fetchDevicesAndGroups();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []));
 
   const fetchWLEDPreview = async (
     ip: string,
