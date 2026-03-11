@@ -59,6 +59,103 @@ static void scanTask(void*) {
   vTaskDelete(nullptr);
 }
 
+// ── WLED AP provisioning state ────────────────────────────────
+struct ProvEntry { String ap; String ip; };
+static std::vector<ProvEntry> g_provConfigured;
+static volatile bool g_provRunning = false;
+static volatile bool g_provDone    = false;
+
+static void provisionTask(void*) {
+  g_provConfigured.clear();
+  g_provDone = false;
+
+  // Read wifi.json to get main network credentials to push to WLED devices
+  String mainSsid, mainPass;
+  File wf = LittleFS.open("/wifi.json", "r");
+  if (wf) {
+    JsonDocument wd;
+    deserializeJson(wd, wf); wf.close();
+    mainSsid = wd["ssid"]     | "";
+    mainPass = wd["password"] | "";
+  }
+  if (mainSsid.isEmpty()) {
+    Serial.println("[PROV] No wifi.json — aborting");
+    g_provDone = true; g_provRunning = false; vTaskDelete(nullptr); return;
+  }
+
+  // Scan WiFi for WLED APs (blocking ~2s is fine inside task)
+  int n = WiFi.scanNetworks(false, false);
+  std::vector<String> wledAps;
+  for (int i = 0; i < n; i++) {
+    String ssid = WiFi.SSID(i);
+    if (ssid.startsWith("WLED") || ssid.indexOf("wled") >= 0) {
+      wledAps.push_back(ssid);
+      Serial.printf("[PROV] Found AP: %s\n", ssid.c_str());
+    }
+  }
+  WiFi.scanDelete();
+
+  WiFiClient client;
+  HTTPClient http;
+
+  for (auto& ap : wledAps) {
+    if (!g_provRunning) break;
+    Serial.printf("[PROV] Connecting to %s\n", ap.c_str());
+
+    WiFi.disconnect(true); delay(300);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ap.c_str()); // WLED AP is open — no password
+    unsigned long t0 = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 12000) delay(200);
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.printf("[PROV] Could not connect to %s\n", ap.c_str());
+      continue;
+    }
+    Serial.printf("[PROV] Connected, sending WiFi config\n");
+
+    // POST WiFi credentials to WLED device (4.3.2.1 is its gateway)
+    String body = "CS=" + mainSsid + "&CP=" + mainPass + "&S=1";
+    http.begin(client, "http://4.3.2.1/settings/wifi");
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    http.setTimeout(6000);
+    int code = http.POST(body);
+    http.end();
+    Serial.printf("[PROV] settings/wifi → %d\n", code);
+
+    if (code > 0) {
+      // Reboot WLED so it connects to home network
+      http.begin(client, "http://4.3.2.1/json/state");
+      http.addHeader("Content-Type", "application/json");
+      http.setTimeout(3000);
+      http.POST("{\"rb\":true}");
+      http.end();
+      g_provConfigured.push_back({ ap, "4.3.2.1" });
+    }
+    WiFi.disconnect(true); delay(300);
+  }
+
+  // Reconnect hub to main WiFi
+  Serial.printf("[PROV] Reconnecting to %s\n", mainSsid.c_str());
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname(g_hubMeta.mdns_name.c_str());
+  WiFi.begin(mainSsid.c_str(), mainPass.c_str());
+  unsigned long rt = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - rt < 20000) delay(200);
+  Serial.printf("[PROV] Hub back online: %s\n", WiFi.localIP().toString().c_str());
+
+  // Trigger LAN scan after WLED devices have time to boot and join network
+  delay(10000);
+  if (!g_scanRunning) {
+    g_scanRunning = true;
+    xTaskCreate(scanTask, "scan_post_prov", 8192, nullptr, 1, nullptr);
+  }
+
+  g_provDone    = true;
+  g_provRunning = false;
+  Serial.printf("[PROV] Done, configured %d device(s)\n", g_provConfigured.size());
+  vTaskDelete(nullptr);
+}
+
 static AsyncWebServer _srv(80);
 
 static void addCors(AsyncWebServerResponse* r) {
@@ -461,6 +558,41 @@ void setupServer() {
       }
     }
     sendErr(req, "not found", 404);
+  });
+
+  // GET /api/scan-wled — WiFi scan for WLED AP SSIDs (~2s blocking in handler task)
+  _srv.on("/api/scan-wled", HTTP_GET, [](AsyncWebServerRequest* req) {
+    int n = WiFi.scanNetworks(false, false);
+    JsonDocument doc;
+    JsonArray aps = doc["aps"].to<JsonArray>();
+    for (int i = 0; i < n; i++) {
+      String s = WiFi.SSID(i);
+      if (s.startsWith("WLED") || s.indexOf("wled") >= 0) aps.add(s);
+    }
+    WiFi.scanDelete();
+    sendJson(req, doc);
+  });
+
+  // POST /api/provision-wled — start async provisioning of all found WLED APs
+  _srv.on("/api/provision-wled", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (g_provRunning) { sendOk(req); return; }
+    g_provRunning = true;
+    xTaskCreate(provisionTask, "prov_wled", 8192, nullptr, 1, nullptr);
+    sendOk(req);
+  });
+
+  // GET /api/provision-status — poll provisioning progress
+  _srv.on("/api/provision-status", HTTP_GET, [](AsyncWebServerRequest* req) {
+    JsonDocument doc;
+    doc["running"] = (bool)g_provRunning;
+    doc["done"]    = (bool)g_provDone;
+    doc["error"]   = nullptr;
+    JsonArray arr  = doc["configured"].to<JsonArray>();
+    for (auto& e : g_provConfigured) {
+      JsonObject o = arr.add<JsonObject>();
+      o["ap"] = e.ap; o["ip"] = e.ip; o["mac"] = "";
+    }
+    sendJson(req, doc);
   });
 
   // POST /api/scan-devices — trigger async LAN scan for WLED devices
