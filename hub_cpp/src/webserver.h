@@ -17,6 +17,9 @@ static void scanTask(void*) {
   g_scanFound.clear();
   g_scanDone = false;
 
+  // Brief pause so WLED devices finish DHCP negotiation before we query
+  delay(3000);
+
   // 1. Try mDNS first — WLED devices advertise _wled._tcp on the local network.
   //    MDNS.begin() restarts mDNS after the WiFi reconnect that happened in provisionTask.
   Serial.println("[SCAN] mDNS query for _wled._tcp...");
@@ -190,18 +193,17 @@ static void provisionTask(void*) {
   while (WiFi.status() != WL_CONNECTED && millis() - rt < 20000) delay(200);
   Serial.printf("[PROV] Hub back online: %s\n", WiFi.localIP().toString().c_str());
 
-  // Trigger LAN scan after WLED devices have time to boot and join network
-  // WLED takes ~20-30s to reboot and get DHCP lease
-  Serial.println("[PROV] Waiting 20s for WLED devices to join network...");
-  delay(20000);
+  // Mark provision done immediately — app can start scanning from phone side
+  // WLED is typically already on the network by the time hub reconnects
+  g_provDone    = true;
+  g_provRunning = false;
+  Serial.printf("[PROV] Done, configured %d device(s)\n", g_provConfigured.size());
+
+  // Start LAN scan in background (scanTask tries mDNS first, then IP probe)
   if (!g_scanRunning) {
     g_scanRunning = true;
     xTaskCreate(scanTask, "scan_post_prov", 8192, nullptr, 1, nullptr);
   }
-
-  g_provDone    = true;
-  g_provRunning = false;
-  Serial.printf("[PROV] Done, configured %d device(s)\n", g_provConfigured.size());
   vTaskDelete(nullptr);
 }
 
