@@ -138,7 +138,9 @@ static void provisionTask(void*) {
     // Send both CS/CP (older WLED) and CS0/PW0 (newer WLED multi-network) for compatibility
     String eSsid = urlEncode(mainSsid);
     String ePass = urlEncode(mainPass);
-    String body = "CS=" + eSsid + "&CP=" + ePass + "&CS0=" + eSsid + "&PW0=" + ePass;
+    // Also preserve AP name/pass so WLED shows "WLED-AP" (not blank/ESP-XXXX) if WiFi fails
+    String body = "CS=" + eSsid + "&CP=" + ePass + "&CS0=" + eSsid + "&PW0=" + ePass
+                + "&AP=WLED-AP&AP2=wled1234";
     Serial.printf("[PROV] Sending: CS=%s (pass len=%d)\n", mainSsid.c_str(), mainPass.length());
     http.begin(client, "http://4.3.2.1/settings/wifi");
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
