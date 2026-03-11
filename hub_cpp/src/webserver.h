@@ -172,9 +172,16 @@ static void provisionTask(void*) {
     // Send both CS/CP (older WLED) and CS0/PW0 (newer WLED multi-network) for compatibility
     String eSsid = urlEncode(mainSsid);
     String ePass = urlEncode(mainPass);
+    // Unique mDNS name from last 3 BSSID bytes — e.g. "wled-e61438"
+    // This enables _wled._tcp mDNS discovery after device joins network
+    char mdnsBuf[16];
+    snprintf(mdnsBuf, sizeof(mdnsBuf), "wled-%02x%02x%02x",
+             entry.bssid[3], entry.bssid[4], entry.bssid[5]);
+    String wledMdns = String(mdnsBuf);
+    Serial.printf("[PROV] Setting mDNS: %s\n", wledMdns.c_str());
     // Also preserve AP name/pass so WLED shows "WLED-AP" (not blank/ESP-XXXX) if WiFi fails
     String body = "CS=" + eSsid + "&CP=" + ePass + "&CS0=" + eSsid + "&PW0=" + ePass
-                + "&AP=WLED-AP&AP2=wled1234";
+                + "&AP=WLED-AP&AP2=wled1234&MS=" + wledMdns;
     Serial.printf("[PROV] Sending: CS=%s (pass len=%d)\n", mainSsid.c_str(), mainPass.length());
     http.begin(client, "http://4.3.2.1/settings/wifi");
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
