@@ -281,23 +281,26 @@ void loop() {
   if (now - _lastFrame < _frameMs) return;
   _lastFrame = now;
 
-  // Snapshot groups under lock, render outside lock
+  // 1. Render effects (no heap alloc — safe inside critical section)
   taskENTER_CRITICAL(&g_mux);
-  // We render directly — effects only touch leds[], heat[], tw[] (no heap alloc)
-  // Safe because HTTP callbacks don't touch pixel buffers
-  for (auto& g : g_groups) {
-    renderGroup(g, now);
-  }
-  // Copy device list per group while locked
+  for (auto& g : g_groups) renderGroup(g, now);
+  taskEXIT_CRITICAL(&g_mux);
+
+  // 2. Copy pixels under lock (memcpy only — no heap alloc)
+  //    Copy device IPs WITHOUT lock — String heap alloc inside critical section
+  //    can crash on ESP32 when allocator needs an OS mutex. Slightly stale IPs
+  //    are acceptable for DDP (worst case: one frame to wrong IP).
   struct Snapshot { std::vector<String> devs; CRGB leds[NUM_LEDS]; };
   std::vector<Snapshot> snaps;
-  for (auto& g : g_groups) {
+  snaps.reserve(g_groups.size());
+  for (size_t i = 0; i < g_groups.size(); i++) {
     Snapshot s;
-    s.devs = g.devices;
-    memcpy(s.leds, g.leds, sizeof(g.leds));
+    s.devs = g_groups[i].devices;            // String copy — outside lock (heap safe)
+    taskENTER_CRITICAL(&g_mux);
+    memcpy(s.leds, g_groups[i].leds, sizeof(s.leds)); // pixel copy — under lock
+    taskEXIT_CRITICAL(&g_mux);
     snaps.push_back(std::move(s));
   }
-  taskEXIT_CRITICAL(&g_mux);
 
   // Send DDP outside lock
   for (auto& s : snaps) {
