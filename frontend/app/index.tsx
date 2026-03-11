@@ -21,10 +21,12 @@ export default function Index() {
   }, [loading, user]);
 
   async function checkAndRoute() {
-    // If user explicitly completed or skipped onboarding, go straight to tabs
+    const flagKey = `onboarding_completed_${user.id}`;
+
+    // If this user explicitly completed or skipped onboarding, go straight to tabs
     let onboardingDone = false;
     try {
-      onboardingDone = (await AsyncStorage.getItem('onboarding_completed')) === '1';
+      onboardingDone = (await AsyncStorage.getItem(flagKey)) === '1';
     } catch {}
 
     if (onboardingDone) {
@@ -41,7 +43,7 @@ export default function Index() {
       const hubs = await res.json();
       if (Array.isArray(hubs) && hubs.length > 0) {
         // Has a hub — mark done and go to tabs
-        await AsyncStorage.setItem('onboarding_completed', '1').catch(() => {});
+        await AsyncStorage.setItem(flagKey, '1').catch(() => {});
         router.replace('/(tabs)/devices');
       } else {
         router.replace('/onboarding');

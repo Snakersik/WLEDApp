@@ -37,8 +37,9 @@ const STEPS: OStep[] = ["welcome", "check", "group", "finish"];
 // ─────────────────────────────────────────────────────────────
 export default function OnboardingScreen() {
   const router = useRouter();
-  const { token } = useAuth() as any;
+  const { token, user } = useAuth() as any;
   const { refreshHub } = useHub();
+  const flagKey = `onboarding_completed_${user?.id}`;
 
   const [step, setStep]           = useState<OStep>("welcome");
   const [loading, setLoading]     = useState(false);
@@ -109,15 +110,15 @@ export default function OnboardingScreen() {
 
   // ── Skip / finish handlers ────────────────────────────────────
   const skipOnboarding = useCallback(async () => {
-    await AsyncStorage.setItem("onboarding_completed", "1");
+    await AsyncStorage.setItem(flagKey, "1");
     router.replace("/(tabs)/devices");
-  }, [router]);
+  }, [router, flagKey]);
 
   const finishOnboarding = useCallback(async () => {
-    await AsyncStorage.setItem("onboarding_completed", "1");
+    await AsyncStorage.setItem(flagKey, "1");
     await refreshHub();
     router.replace("/(tabs)/devices");
-  }, [router, refreshHub]);
+  }, [router, refreshHub, flagKey]);
 
   // ── Group creation ────────────────────────────────────────────
   const createGroup = useCallback(async () => {
