@@ -135,8 +135,10 @@ static void provisionTask(void*) {
       }
       return out;
     };
-    // WLED uses CS0/PW0 for client WiFi credentials (not CS/CP)
-    String body = "CS0=" + urlEncode(mainSsid) + "&PW0=" + urlEncode(mainPass);
+    // Send both CS/CP (older WLED) and CS0/PW0 (newer WLED multi-network) for compatibility
+    String eSsid = urlEncode(mainSsid);
+    String ePass = urlEncode(mainPass);
+    String body = "CS=" + eSsid + "&CP=" + ePass + "&CS0=" + eSsid + "&PW0=" + ePass;
     Serial.printf("[PROV] Sending: CS=%s (pass len=%d)\n", mainSsid.c_str(), mainPass.length());
     http.begin(client, "http://4.3.2.1/settings/wifi");
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
