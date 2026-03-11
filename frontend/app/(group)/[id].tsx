@@ -331,9 +331,10 @@ export default function GroupControlScreen() {
   );
 
   const sendEffectParams = (sx: number, ix: number) => {
+    if (!hubIp) return;
     if (effectDebounceRef.current) clearTimeout(effectDebounceRef.current);
     effectDebounceRef.current = setTimeout(() => {
-      controlGroup({ sx: Math.round(sx), ix: Math.round(ix) });
+      HubService.setGroupState(hubIp, String(id), { seg: [{ sx: Math.round(sx), ix: Math.round(ix) }] } as any).catch(() => {});
     }, 80);
   };
 
@@ -646,8 +647,8 @@ export default function GroupControlScreen() {
   const BORDER_THICKNESS = 6;
   const BORDER_GUTTER = BORDER_THICKNESS + 10;
 
-  // Preview: pierwszy online device
-  const previewDeviceIp = groupDevices.find((d) => d.is_online)?.ip_address ?? null;
+  // Preview: preferuj online, fallback na pierwszy dostępny
+  const previewDeviceIp = (groupDevices.find((d) => d.is_online) ?? groupDevices[0])?.ip_address ?? null;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -713,6 +714,19 @@ export default function GroupControlScreen() {
             onPickSlot={onPickPaletteSlot}
           />
 
+          {selectedPreset !== null && (
+            <EffectSliders
+              speed={effectSpeed}
+              intensity={effectIntensity}
+              controlling={uiLocked}
+              isOnline={!!hubIp}
+              onSpeedChange={(v) => setEffectSpeed(v)}
+              onSpeedComplete={(v) => { setEffectSpeed(v); sendEffectParams(v, effectIntensity); }}
+              onIntensityChange={(v) => setEffectIntensity(v)}
+              onIntensityComplete={(v) => { setEffectIntensity(v); sendEffectParams(effectSpeed, v); }}
+            />
+          )}
+
           <PresetsSection
             title={t("presets") ?? "Presets"}
             presets={presets}
@@ -724,30 +738,6 @@ export default function GroupControlScreen() {
             onSelect={handlePresetSelect}
           />
         </ScrollView>
-
-        {selectedPreset !== null && (
-          <View style={{
-            position: "absolute",
-            bottom: Platform.OS === "ios" ? 110 : 98,
-            left: 0,
-            right: 0,
-            zIndex: 5,
-            backgroundColor: "#0b1120",
-            borderTopWidth: 1,
-            borderTopColor: "#1e293b",
-          }}>
-            <EffectSliders
-              speed={effectSpeed}
-              intensity={effectIntensity}
-              controlling={uiLocked}
-              isOnline={!!hubIp}
-              onSpeedChange={(v) => setEffectSpeed(v)}
-              onSpeedComplete={(v) => { setEffectSpeed(v); sendEffectParams(v, effectIntensity); }}
-              onIntensityChange={(v) => setEffectIntensity(v)}
-              onIntensityComplete={(v) => { setEffectIntensity(v); sendEffectParams(effectSpeed, v); }}
-            />
-          </View>
-        )}
 
         <BottomBar
           isOnline={!!hubIp}
