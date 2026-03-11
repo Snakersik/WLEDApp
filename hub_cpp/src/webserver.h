@@ -84,13 +84,21 @@ static void provisionTask(void*) {
   }
 
   // Scan WiFi for WLED APs (blocking ~2s is fine inside task)
+  // Deduplicate by BSSID — ESP32 scan often returns same AP multiple times
   int n = WiFi.scanNetworks(false, false);
   std::vector<String> wledAps;
+  std::vector<String> seenBssids;
   for (int i = 0; i < n; i++) {
-    String ssid = WiFi.SSID(i);
+    String ssid  = WiFi.SSID(i);
+    String bssid = WiFi.BSSIDstr(i);
     if (ssid.startsWith("WLED") || ssid.indexOf("wled") >= 0) {
-      wledAps.push_back(ssid);
-      Serial.printf("[PROV] Found AP: %s\n", ssid.c_str());
+      bool dup = false;
+      for (auto& b : seenBssids) { if (b == bssid) { dup = true; break; } }
+      if (!dup) {
+        seenBssids.push_back(bssid);
+        wledAps.push_back(ssid);
+        Serial.printf("[PROV] Found AP: %s (%s)\n", ssid.c_str(), bssid.c_str());
+      }
     }
   }
   WiFi.scanDelete();
@@ -127,9 +135,8 @@ static void provisionTask(void*) {
       }
       return out;
     };
-    // CS, CP + preserve AP settings (omitting AP2 would clear it to "" in WLED)
-    String body = "CS=" + urlEncode(mainSsid) + "&CP=" + urlEncode(mainPass)
-                + "&AP=WLED-AP&AP2=wled1234";
+    // WLED uses CS0/PW0 for client WiFi credentials (not CS/CP)
+    String body = "CS0=" + urlEncode(mainSsid) + "&PW0=" + urlEncode(mainPass);
     Serial.printf("[PROV] Sending: CS=%s (pass len=%d)\n", mainSsid.c_str(), mainPass.length());
     http.begin(client, "http://4.3.2.1/settings/wifi");
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -581,9 +588,15 @@ void setupServer() {
     int n = WiFi.scanNetworks(false, false);
     JsonDocument doc;
     JsonArray aps = doc["aps"].to<JsonArray>();
+    std::vector<String> seen;
     for (int i = 0; i < n; i++) {
       String s = WiFi.SSID(i);
-      if (s.startsWith("WLED") || s.indexOf("wled") >= 0) aps.add(s);
+      String b = WiFi.BSSIDstr(i);
+      if (s.startsWith("WLED") || s.indexOf("wled") >= 0) {
+        bool dup = false;
+        for (auto& x : seen) { if (x == b) { dup = true; break; } }
+        if (!dup) { seen.push_back(b); aps.add(s); }
+      }
     }
     WiFi.scanDelete();
     sendJson(req, doc);
