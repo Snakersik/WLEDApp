@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       backend_url:
-        description: 'Backend URL (e.g. http://192.168.10.42:8002)'
+        description: 'Backend URL (e.g. http://192.168.1.83:8002)'
         required: false
         default: ''
 
@@ -54,7 +54,7 @@ jobs:
       - name: Create .env file
         working-directory: frontend
         env:
-          BACKEND_URL: ${{ github.event.inputs.backend_url || vars.BACKEND_URL || 'http://192.168.10.42:8002' }}
+          BACKEND_URL: ${{ github.event.inputs.backend_url || vars.BACKEND_URL || 'http://192.168.1.83:8002' }}
         run: echo "EXPO_PUBLIC_BACKEND_URL=$BACKEND_URL" > .env
 
       - name: Expo Prebuild (Android only)
@@ -68,7 +68,7 @@ jobs:
       - name: Build Release APK
         working-directory: frontend/android
         env:
-          EXPO_PUBLIC_BACKEND_URL: ${{ github.event.inputs.backend_url || vars.BACKEND_URL || 'http://192.168.10.42:8002' }}
+          EXPO_PUBLIC_BACKEND_URL: ${{ github.event.inputs.backend_url || vars.BACKEND_URL || 'http://192.168.1.83:8002' }}
           NODE_ENV: production
         run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
 

@@ -4,7 +4,7 @@ import axios from "axios";
 import { useAuth } from "./AuthContext";
 
 const HUB_IP_KEY = "hub_ip_cache";
-const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.10.42:8002") + "/api";
+const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.1.83:8002") + "/api";
 
 interface HubContextValue {
   hubIp: string | null;
