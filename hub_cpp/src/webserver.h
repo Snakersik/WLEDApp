@@ -104,7 +104,7 @@ static void provisionTask(void*) {
 
     WiFi.disconnect(true); delay(300);
     WiFi.mode(WIFI_STA);
-    WiFi.begin(ap.c_str()); // WLED AP is open — no password
+    WiFi.begin(ap.c_str(), "wled1234"); // default WLED AP password
     unsigned long t0 = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - t0 < 12000) delay(200);
     if (WiFi.status() != WL_CONNECTED) {
