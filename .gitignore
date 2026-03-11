@@ -84,3 +84,6 @@ frontend/ios/
 # Environment files
 *.env
 *.env.*
+hub_cpp/data/wifi.json
+fx.cpp
+.claude/
