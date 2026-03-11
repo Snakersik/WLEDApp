@@ -386,7 +386,9 @@ export default function SetupScreen() {
       await startWledProvision(ip);
     } catch {}
 
-    const status = await waitForProvision(ip, 120_000, 2_500);
+    const status = await waitForProvision(ip, 120_000, 2_500, (s) => {
+      addDebug(`[PROV] running=${s.running} done=${s.done} configured=${s.configured.length}${s.error ? ' err=' + s.error : ''}`);
+    });
     if (!isMounted.current) return;
 
     setConfiguredWled(status.configured.map((c: any) => c.name ?? c.ap));
@@ -399,19 +401,26 @@ export default function SetupScreen() {
     }
 
     go("lan_scan", "Szukam urządzeń w sieci lokalnej…");
-    const scan = await waitForLanScan(ip, 60_000, 2_500);
+    const scan = await waitForLanScan(ip, 150_000, 2_500, (s) => {
+      const ips = s.found.map(d => `${d.name}@${d.ip}`).join(', ') || '—';
+      addDebug(`[SCAN] running=${s.running} done=${s.done} found=${s.found.length} [${ips}]`);
+    });
     if (!isMounted.current) return;
 
     setFoundDevices(scan.found);
 
     for (const d of scan.found) {
+      addDebug(`[REG] Rejestruję ${d.name} @ ${d.ip}…`);
       try {
         await axios.post(
           `${API_URL}/devices`,
           { name: d.name || 'WLED Device', ip_address: d.ip, led_count: 30 },
           { headers: { Authorization: `Bearer ${token}` }, timeout: 8_000 },
         );
-      } catch {} // ignore duplicates / backend errors
+        addDebug(`[REG] OK — ${d.name}`);
+      } catch (e: any) {
+        addDebug(`[REG] Błąd: ${e?.response?.status ?? e?.message ?? 'unknown'}`);
+      }
     }
 
     go("done");

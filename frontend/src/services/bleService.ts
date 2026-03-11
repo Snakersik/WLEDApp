@@ -230,12 +230,14 @@ export async function waitForProvision(
   hubIp: string,
   timeoutMs = 120_000,
   intervalMs = 2_000,
+  onPoll?: (status: ProvisionStatus) => void,
 ): Promise<ProvisionStatus> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       const res = await fetchWithTimeout(`http://${hubIp}/api/provision-status`, 2_000);
       const json: ProvisionStatus = await res.json();
+      onPoll?.(json);
       if (json.done) return json;
     } catch {
       // Hub may be briefly offline during WiFi switch — just retry
@@ -262,12 +264,14 @@ export async function waitForLanScan(
   hubIp: string,
   timeoutMs = 60_000,
   intervalMs = 2_000,
+  onPoll?: (status: ScanStatus) => void,
 ): Promise<ScanStatus> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       const res = await fetchWithTimeout(`http://${hubIp}/api/scan-status`, 2_000);
       const json: ScanStatus = await res.json();
+      onPoll?.(json);
       if (json.done) return json;
     } catch {}
     await delay(intervalMs);
