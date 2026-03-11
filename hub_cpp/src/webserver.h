@@ -592,8 +592,7 @@ void setupServer() {
   _srv.on("/api/scan-wled", HTTP_GET, [](AsyncWebServerRequest* req) {
     WiFi.scanNetworks(true); // start async scan, returns immediately
     while (WiFi.scanComplete() == WIFI_SCAN_RUNNING) {
-      esp_task_wdt_reset();              // feed WDT so async_tcp doesn't die
-      vTaskDelay(pdMS_TO_TICKS(100));   // yield to other tasks
+      vTaskDelay(pdMS_TO_TICKS(100));   // yield — resets WDT via idle task
     }
     int n = WiFi.scanComplete();
     JsonDocument doc;
