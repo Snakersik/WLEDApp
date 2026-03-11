@@ -623,13 +623,13 @@ export default function DevicesScreen() {
         setProvisionStatus("Szukam urządzeń w sieci...");
         // Hub waits 20s then starts LAN scan — poll until done (scan takes ~1-2 min)
         setTimeout(() => {
-          const sInterval = setInterval(async () => {
+          // NOTE: intentionally NOT stored in scanIntervalRef — closeModal must not cancel this
+        const sInterval = setInterval(async () => {
             const ss = await HubService.getScanStatus(hubIp);
             if (!ss) return;
             if (ss.running) setProvisionStatus(`Skan: ${ss.found.length} znaleziono...`);
             if (ss.done) {
               clearInterval(sInterval);
-              scanIntervalRef.current = null;
               setAdding(false);
               closeModal();
               for (const d of ss.found) {
@@ -637,7 +637,6 @@ export default function DevicesScreen() {
               }
             }
           }, 3000);
-          scanIntervalRef.current = sInterval;
         }, 25000);
       }
     }, 2000);
