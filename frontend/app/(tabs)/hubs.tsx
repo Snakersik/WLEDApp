@@ -187,6 +187,39 @@ export default function HubScreen() {
     setEditModal(true);
   };
 
+  const handleRemoveHub = () => {
+    if (!hub) return;
+    Alert.alert(
+      "Usuń hub",
+      "Hub zostanie odłączony od konta i zresetowany do trybu parowania BLE. Kontynuować?",
+      [
+        { text: t("cancel"), style: "cancel" },
+        { text: "Usuń", style: "destructive", onPress: async () => {
+          // 1. DELETE /wifi on hub (if reachable) — resets to BLE/AP mode
+          const ip = hubIp || hub.ip_address;
+          if (ip) {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 3000);
+            try { await fetch(`http://${ip}/wifi`, { method: "DELETE", signal: ctrl.signal }); } catch {}
+            clearTimeout(timer);
+          }
+          // 2. DELETE hub from backend
+          try {
+            await axios.delete(`${API_URL}/hubs/${hub.id}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          } catch {}
+          setHub(null);
+          setHubInfo(null);
+          setHubOnline(false);
+          setDevices([]);
+          setScanResults([]);
+          await refreshHub();
+        }},
+      ]
+    );
+  };
+
   const handleSaveEdit = async () => {
     if (!hub || !editName.trim() || !editIp.trim()) return;
     setSaving(true);
@@ -385,6 +418,12 @@ export default function HubScreen() {
                 <Text style={s.restartBtnText}>{t("restartHub")}</Text>
               </TouchableOpacity>
             ) : null}
+
+            {/* ── Remove hub ── */}
+            <TouchableOpacity style={s.removeHubBtn} onPress={handleRemoveHub}>
+              <Ionicons name="trash-outline" size={18} color={C.red} />
+              <Text style={s.removeHubBtnText}>Usuń hub z aplikacji</Text>
+            </TouchableOpacity>
           </>
         )}
       </ScrollView>
@@ -490,6 +529,8 @@ const s = StyleSheet.create({
   restartBtnText: { fontSize: 14, color: C.red, fontWeight: "600", flex: 1 },
   restartingRow:  { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: C.borderMd, padding: 16 },
   restartingText: { fontSize: 14, color: C.text2, fontWeight: "600", flex: 1 },
+  removeHubBtn:     { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: C.red + "66", padding: 16 },
+  removeHubBtnText: { fontSize: 14, color: C.red, fontWeight: "600", flex: 1 },
 
   // Modals
   overlay:       { flex: 1, backgroundColor: C.bgOverlay, justifyContent: "flex-end" },
