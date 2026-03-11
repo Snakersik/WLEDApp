@@ -122,7 +122,7 @@ export const WLEDDiscovery = {
       const formData = new URLSearchParams();
       formData.append("CS", ssid); // Client SSID
       formData.append("CP", password); // Client Password
-      formData.append("S", "1"); // Save
+      // NOTE: do NOT append "S" — in WLED "S" is the static subnet field, not "save"
 
       await axios.post("http://4.3.2.1/settings/wifi", formData.toString(), {
         timeout: 8000,

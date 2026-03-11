@@ -127,7 +127,8 @@ static void provisionTask(void*) {
       }
       return out;
     };
-    String body = "CS=" + urlEncode(mainSsid) + "&CP=" + urlEncode(mainPass) + "&S=1";
+    String body = "CS=" + urlEncode(mainSsid) + "&CP=" + urlEncode(mainPass);
+    // NOTE: do NOT add &S=1 — in WLED "S" is the static subnet field, not "save"
     Serial.printf("[PROV] Sending: CS=%s (pass len=%d)\n", mainSsid.c_str(), mainPass.length());
     http.begin(client, "http://4.3.2.1/settings/wifi");
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
