@@ -114,7 +114,21 @@ static void provisionTask(void*) {
     Serial.printf("[PROV] Connected, sending WiFi config\n");
 
     // POST WiFi credentials to WLED device (4.3.2.1 is its gateway)
-    String body = "CS=" + mainSsid + "&CP=" + mainPass + "&S=1";
+    // URL-encode SSID and password to handle special chars (&, =, space, #, etc.)
+    auto urlEncode = [](const String& s) -> String {
+      String out; out.reserve(s.length() * 3);
+      for (char c : s) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+          out += c;
+        } else {
+          char buf[4]; snprintf(buf, sizeof(buf), "%%%02X", (uint8_t)c);
+          out += buf;
+        }
+      }
+      return out;
+    };
+    String body = "CS=" + urlEncode(mainSsid) + "&CP=" + urlEncode(mainPass) + "&S=1";
+    Serial.printf("[PROV] Sending: CS=%s (pass len=%d)\n", mainSsid.c_str(), mainPass.length());
     http.begin(client, "http://4.3.2.1/settings/wifi");
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     http.setTimeout(6000);
@@ -144,7 +158,9 @@ static void provisionTask(void*) {
   Serial.printf("[PROV] Hub back online: %s\n", WiFi.localIP().toString().c_str());
 
   // Trigger LAN scan after WLED devices have time to boot and join network
-  delay(10000);
+  // WLED takes ~20-30s to reboot and get DHCP lease
+  Serial.println("[PROV] Waiting 35s for WLED devices to join network...");
+  delay(35000);
   if (!g_scanRunning) {
     g_scanRunning = true;
     xTaskCreate(scanTask, "scan_post_prov", 8192, nullptr, 1, nullptr);
