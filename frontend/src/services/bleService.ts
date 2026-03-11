@@ -267,16 +267,19 @@ export async function waitForLanScan(
   onPoll?: (status: ScanStatus) => void,
 ): Promise<ScanStatus> {
   const deadline = Date.now() + timeoutMs;
+  let lastFound: ScanStatus['found'] = [];
   while (Date.now() < deadline) {
     try {
       const res = await fetchWithTimeout(`http://${hubIp}/api/scan-status`, 2_000);
       const json: ScanStatus = await res.json();
+      lastFound = json.found;
       onPoll?.(json);
       if (json.done) return json;
     } catch {}
     await delay(intervalMs);
   }
-  return { running: false, done: true, found: [], error: 'timeout' };
+  // Return whatever was found so far — don't discard on timeout
+  return { running: false, done: true, found: lastFound, error: 'timeout' };
 }
 
 /**

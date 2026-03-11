@@ -52,7 +52,7 @@ static void scanTask(void*) {
       String ip  = String(b0)+"."+String(b1)+"."+String(b2)+"."+String(i);
       String url = "http://" + ip + "/json/info";
       http.begin(client, url);
-      http.setTimeout(400);
+      http.setTimeout(200);
       int code = http.GET();
       if (code == 200) {
         String body = http.getString();
