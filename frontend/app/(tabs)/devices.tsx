@@ -631,10 +631,10 @@ export default function DevicesScreen() {
             if (ss.done) {
               clearInterval(sInterval);
               setAdding(false);
-              closeModal();
               for (const d of ss.found) {
                 await addDiscoveredDevice({ name: d.name, ip: d.ip, host: d.ip, port: 80, fullName: d.name });
               }
+              if (ss.found.length === 0) closeModal();
             }
           }, 3000);
         }, 25000);

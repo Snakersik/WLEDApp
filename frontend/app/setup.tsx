@@ -403,6 +403,17 @@ export default function SetupScreen() {
     if (!isMounted.current) return;
 
     setFoundDevices(scan.found);
+
+    for (const d of scan.found) {
+      try {
+        await axios.post(
+          `${API_URL}/devices`,
+          { name: d.name || 'WLED Device', ip_address: d.ip, led_count: 30 },
+          { headers: { Authorization: `Bearer ${token}` }, timeout: 8_000 },
+        );
+      } catch {} // ignore duplicates / backend errors
+    }
+
     go("done");
   }, [go]);
 

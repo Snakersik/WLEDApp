@@ -66,9 +66,9 @@ export interface HubProvisionStatus {
 
 const TIMEOUT = 4000;
 
-async function fetchWithTimeout(url: string, options?: RequestInit) {
+async function fetchWithTimeout(url: string, options?: RequestInit, timeout = TIMEOUT) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT);
+  const timer = setTimeout(() => controller.abort(), timeout);
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     return res;
@@ -270,7 +270,7 @@ export const HubService = {
 
   async getWledAps(ip: string): Promise<string[]> {
     try {
-      const res = await fetchWithTimeout(`http://${ip}/api/scan-wled`);
+      const res = await fetchWithTimeout(`http://${ip}/api/scan-wled`, {}, 10_000);
       if (!res.ok) return [];
       const data = await res.json();
       return data.aps ?? [];
