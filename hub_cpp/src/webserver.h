@@ -179,9 +179,9 @@ static void provisionTask(void*) {
              entry.bssid[3], entry.bssid[4], entry.bssid[5]);
     String wledMdns = String(mdnsBuf);
     Serial.printf("[PROV] Setting mDNS: %s\n", wledMdns.c_str());
-    // Also preserve AP name/pass so WLED shows "WLED-AP" (not blank/ESP-XXXX) if WiFi fails
+    // AS=AP SSID, AP=AP password, CM=mDNS name (confirmed WLED form field names)
     String body = "CS=" + eSsid + "&CP=" + ePass + "&CS0=" + eSsid + "&PW0=" + ePass
-                + "&AP=WLED-AP&AP2=wled1234&MS=" + wledMdns;
+                + "&AS=WLED-AP&AP=wled1234&CM=" + wledMdns;
     Serial.printf("[PROV] Sending: CS=%s (pass len=%d)\n", mainSsid.c_str(), mainPass.length());
     http.begin(client, "http://4.3.2.1/settings/wifi");
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
