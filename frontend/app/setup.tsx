@@ -261,8 +261,9 @@ export default function SetupScreen() {
         AsyncStorage.setItem(STORAGE_PASS, wifiPass),
       ]);
       go("hub_lan_scan", "Hub łączy się z WiFi. Szukam go w sieci…");
-      addDebug("Czekam na boot ESP32 (~20s)…");
-      await delay(20_000);
+      addDebug("Czekam aż hub wstanie…");
+      // Poll instead of fixed delay — ESP32 typically boots in 3-5s, no need to wait 20s.
+      // waitForHubOnline tries mDNS first, falls through to LAN scan in findAndRegister.
       await findAndRegister(result.mdnsName, result.hubId);
 
     } else if (result.message?.includes("Timeout")) {
