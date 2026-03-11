@@ -21,29 +21,34 @@ export default function Index() {
   }, [loading, user]);
 
   async function checkAndRoute() {
-    // If onboarding already completed locally, go straight to tabs
+    // If user explicitly completed or skipped onboarding, go straight to tabs
+    let onboardingDone = false;
     try {
-      const done = await AsyncStorage.getItem('onboarding_completed');
-      if (done === '1') {
-        router.replace('/(tabs)/devices');
-        return;
-      }
+      onboardingDone = (await AsyncStorage.getItem('onboarding_completed')) === '1';
     } catch {}
+
+    if (onboardingDone) {
+      router.replace('/(tabs)/devices');
+      return;
+    }
 
     // Check if user already has a hub in backend
     try {
       const res = await fetch(`${API_URL}/hubs`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error('not ok');
       const hubs = await res.json();
       if (Array.isArray(hubs) && hubs.length > 0) {
+        // Has a hub — mark done and go to tabs
+        await AsyncStorage.setItem('onboarding_completed', '1').catch(() => {});
         router.replace('/(tabs)/devices');
       } else {
         router.replace('/onboarding');
       }
     } catch {
-      // Network error or backend down — don't block user, go to tabs
-      router.replace('/(tabs)/devices');
+      // Backend unreachable and no completion flag → show onboarding
+      router.replace('/onboarding');
     }
   }
 
