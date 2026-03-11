@@ -318,6 +318,7 @@ export default function SetupScreen() {
       firmwareVer = info?.ver;
     } catch {}
 
+    addDebug(`Rejestruję hub w backendzie…`);
     try {
       await axios.post(
         `${API_URL}/hubs`,
@@ -328,14 +329,17 @@ export default function SetupScreen() {
           mdns_name: mdnsName,
           firmware_version: firmwareVer,
         },
-        { headers: { Authorization: `Bearer ${token}` } },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 10_000 },
       );
+      addDebug(`Rejestracja OK`);
       setRegisteredHubIp(effectiveHost);
       await refreshHub();
       go("wled_scan", "Hub zarejestrowany! Szukam urządzeń WLED…");
       await startWledScan(effectiveHost);
     } catch (e: any) {
-      Alert.alert("Błąd rejestracji", e?.response?.data?.detail ?? e?.message ?? "Nieznany błąd");
+      const msg = e?.response?.data?.detail ?? e?.message ?? "Nieznany błąd";
+      addDebug(`Błąd rejestracji: ${msg}`);
+      Alert.alert("Błąd rejestracji", msg);
       go("hub_ip");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
