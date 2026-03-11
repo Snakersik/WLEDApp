@@ -17,42 +17,64 @@ static void scanTask(void*) {
   g_scanFound.clear();
   g_scanDone = false;
 
-  IPAddress local  = WiFi.localIP();
-  IPAddress mask   = WiFi.subnetMask();
-  // Build subnet base (works for /24 which is typical home network)
-  uint8_t b0 = local[0] & mask[0];
-  uint8_t b1 = local[1] & mask[1];
-  uint8_t b2 = local[2] & mask[2];
+  // 1. Try mDNS first — WLED devices advertise _wled._tcp on the local network.
+  //    MDNS.begin() restarts mDNS after the WiFi reconnect that happened in provisionTask.
+  Serial.println("[SCAN] mDNS query for _wled._tcp...");
+  MDNS.begin(g_hubMeta.mdns_name.c_str());
+  int mdnsN = MDNS.queryService("wled", "tcp");
+  for (int i = 0; i < mdnsN; i++) {
+    String ip   = MDNS.IP(i).toString();
+    String name = MDNS.hostname(i);
+    if (name.endsWith(".local")) name = name.substring(0, name.length() - 6);
+    if (name.isEmpty()) name = ip;
+    if (ip == WiFi.localIP().toString()) continue; // skip self
+    g_scanFound.push_back({ name, ip });
+    Serial.printf("[SCAN] mDNS WLED: %s @ %s\n", name.c_str(), ip.c_str());
+  }
 
-  WiFiClient client;
-  HTTPClient http;
-  for (int i = 1; i <= 254 && g_scanRunning; i++) {
-    uint8_t host = local[3] == i ? 0 : i; // skip self
-    if (!host) continue;
-    String ip  = String(b0)+"."+String(b1)+"."+String(b2)+"."+String(i);
-    String url = "http://" + ip + "/json/info";
-    http.begin(client, url);
-    http.setTimeout(400);
-    int code = http.GET();
-    if (code == 200) {
-      String body = http.getString();
-      // WLED responds with {"leds":{...},"ver":"...",...}
-      if (body.indexOf("\"leds\"") >= 0) {
-        JsonDocument doc;
-        String name = ip;
-        if (deserializeJson(doc, body) == DeserializationError::Ok) {
-          name = doc["name"] | ip.c_str();
-        }
-        // Skip ourselves (hub)
-        if (name != "DDP Hub") {
-          g_scanFound.push_back({ name, ip });
-          Serial.printf("[SCAN] WLED: %s @ %s\n", name.c_str(), ip.c_str());
+  if (!g_scanFound.empty()) {
+    Serial.printf("[SCAN] mDNS found %d device(s), skipping IP probe\n", g_scanFound.size());
+  } else {
+    // 2. Fallback: probe all IPs in subnet (slow but reliable when mDNS fails)
+    Serial.println("[SCAN] mDNS found nothing, falling back to IP probe...");
+
+    IPAddress local  = WiFi.localIP();
+    IPAddress mask   = WiFi.subnetMask();
+    uint8_t b0 = local[0] & mask[0];
+    uint8_t b1 = local[1] & mask[1];
+    uint8_t b2 = local[2] & mask[2];
+
+    WiFiClient client;
+    HTTPClient http;
+    for (int i = 1; i <= 254 && g_scanRunning; i++) {
+      uint8_t host = local[3] == i ? 0 : i; // skip self
+      if (!host) continue;
+      String ip  = String(b0)+"."+String(b1)+"."+String(b2)+"."+String(i);
+      String url = "http://" + ip + "/json/info";
+      http.begin(client, url);
+      http.setTimeout(400);
+      int code = http.GET();
+      if (code == 200) {
+        String body = http.getString();
+        // WLED responds with {"leds":{...},"ver":"...",...}
+        if (body.indexOf("\"leds\"") >= 0) {
+          JsonDocument doc;
+          String name = ip;
+          if (deserializeJson(doc, body) == DeserializationError::Ok) {
+            name = doc["name"] | ip.c_str();
+          }
+          // Skip ourselves (hub)
+          if (name != "DDP Hub") {
+            g_scanFound.push_back({ name, ip });
+            Serial.printf("[SCAN] WLED: %s @ %s\n", name.c_str(), ip.c_str());
+          }
         }
       }
+      http.end();
+      delay(5);
     }
-    http.end();
-    delay(5);
   }
+
   g_scanDone    = true;
   g_scanRunning = false;
   Serial.printf("[SCAN] done, found %d device(s)\n", g_scanFound.size());

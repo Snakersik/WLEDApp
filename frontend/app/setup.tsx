@@ -26,6 +26,7 @@ import axios from "axios";
 
 import { useAuth } from "../src/context/AuthContext";
 import { useHub }  from "../src/context/HubContext";
+import { WLEDDiscovery } from "../src/services/discoveryService";
 import {
   destroyBleManager,
   findHubOnLan,
@@ -400,16 +401,38 @@ export default function SetupScreen() {
       return;
     }
 
-    go("lan_scan", "Szukam urządzeń w sieci lokalnej…");
-    const scan = await waitForLanScan(ip, 150_000, 2_500, (s) => {
-      const ips = s.found.map(d => `${d.name}@${d.ip}`).join(', ') || '—';
-      addDebug(`[SCAN] running=${s.running} done=${s.done} found=${s.found.length} [${ips}]`);
+    go("lan_scan", "Szukam urządzeń (mDNS)…");
+
+    // 1. Try mDNS first — fast (2-5s) when WLED devices advertise _wled._tcp
+    addDebug(`[SCAN] Próba mDNS (_wled._tcp)...`);
+    const mdnsFound = await new Promise<Array<{ name: string; ip: string }>>((resolve) => {
+      const found: Array<{ name: string; ip: string }> = [];
+      WLEDDiscovery.startMDNSScan(
+        (d) => found.push({ name: d.name, ip: d.ip }),
+        () => resolve(found),
+      );
+      setTimeout(() => { WLEDDiscovery.stopMDNSScan(); resolve(found); }, 8_000);
     });
     if (!isMounted.current) return;
+    addDebug(`[SCAN] mDNS: znaleziono ${mdnsFound.length} urządzenia`);
 
-    setFoundDevices(scan.found);
+    const foundDevices = mdnsFound.length > 0
+      ? mdnsFound
+      : await (async () => {
+          // 2. Fallback: poll hub's LAN scan (hub also tries mDNS then IP probe)
+          addDebug(`[SCAN] mDNS nic nie znalazło — czekam na skan huba...`);
+          go("lan_scan", "Szukam urządzeń w sieci (skan IP)…");
+          const scan = await waitForLanScan(ip, 150_000, 2_500, (s) => {
+            const ips = s.found.map(d => `${d.name}@${d.ip}`).join(', ') || '—';
+            addDebug(`[SCAN] running=${s.running} done=${s.done} found=${s.found.length} [${ips}]`);
+          });
+          return scan.found;
+        })();
+    if (!isMounted.current) return;
 
-    for (const d of scan.found) {
+    setFoundDevices(foundDevices);
+
+    for (const d of foundDevices) {
       addDebug(`[REG] Rejestruję ${d.name} @ ${d.ip}…`);
       try {
         await axios.post(
