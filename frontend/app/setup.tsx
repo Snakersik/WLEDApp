@@ -16,7 +16,7 @@ import {
 } from "react-native";
 
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Device } from "react-native-ble-plx";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -65,6 +65,7 @@ const LOCATIONS = ["Salon", "Sypialnia", "Kuchnia", "Łazienka", "Korytarz", "Ga
 // ─────────────────────────────────────────────────────────────
 export default function SetupScreen() {
   const router = useRouter();
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { token } = useAuth() as any;
   const { refreshHub } = useHub();
 
@@ -477,7 +478,7 @@ export default function SetupScreen() {
         <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
           {/* Header */}
           <View style={s.header}>
-            <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
+            <TouchableOpacity onPress={() => router.back()} hitSlop={12} style={{ opacity: returnTo ? 0 : 1 }} disabled={!!returnTo}>
               <Ionicons name="arrow-back" size={24} color="#94a3b8" />
             </TouchableOpacity>
             <Text style={s.title}>Konfiguracja</Text>
@@ -761,7 +762,7 @@ export default function SetupScreen() {
                 </Text>
               )}
 
-              <PrimaryBtn label="Zakończ" onPress={() => router.back()} />
+              <PrimaryBtn label="Zakończ" onPress={() => returnTo ? router.replace(returnTo as any) : router.back()} />
             </Card>
           )}
           {/* ── DEBUG PANEL ── */}
