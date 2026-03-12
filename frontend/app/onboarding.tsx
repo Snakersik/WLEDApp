@@ -182,11 +182,9 @@ export default function OnboardingScreen() {
             {/* ── WELCOME ── */}
             {step === "welcome" && (
               <Card>
-                {/* Hero */}
+                {/* Hero — LED diode shape */}
                 <View style={s.heroWrap}>
-                  <View style={s.heroCircle}>
-                    <Ionicons name="bulb" size={40} color="#fff" />
-                  </View>
+                  <LedDiodeIcon color="#6366f1" />
                 </View>
 
                 <Text style={s.heading}>Inteligentne oświetlenie{"\n"}w Twoim domu</Text>
@@ -387,6 +385,68 @@ function SummaryRow({ icon, label, value, ok }: { icon: any; label: string; valu
   );
 }
 
+// LED diode drawn with Views (dome + body + legs)
+function LedDiodeIcon({ color = "#6366f1" }: { color?: string }) {
+  return (
+    <View style={{ alignItems: "center" }}>
+      {/* Glow */}
+      <View style={[ldS.glow, { backgroundColor: color, shadowColor: color }]} />
+      {/* Dome (circle clipped to top half) */}
+      <View style={[ldS.dome, { backgroundColor: color, borderColor: color + "aa", shadowColor: color }]} />
+      {/* Body */}
+      <View style={[ldS.body, { backgroundColor: color + "cc", borderColor: color + "88" }]} />
+      {/* Legs */}
+      <View style={ldS.legsRow}>
+        <View style={ldS.leg} />
+        <View style={ldS.legGap} />
+        <View style={ldS.leg} />
+      </View>
+    </View>
+  );
+}
+
+const ldS = StyleSheet.create({
+  glow: {
+    position: "absolute",
+    top: 0,
+    width: 80, height: 80,
+    borderRadius: 40,
+    opacity: 0.25,
+    shadowOpacity: 0.8,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  dome: {
+    width: 60, height: 60,
+    borderRadius: 30,
+    borderWidth: 2,
+    shadowOpacity: 0.7,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 6,
+    // Flat lens shine overlay via border
+  },
+  body: {
+    width: 42, height: 18,
+    borderLeftWidth: 2,
+    borderRightWidth: 2,
+    borderBottomWidth: 2,
+    borderBottomLeftRadius: 5,
+    borderBottomRightRadius: 5,
+    marginTop: -2,
+  },
+  legsRow: {
+    flexDirection: "row",
+    marginTop: 0,
+  },
+  leg: {
+    width: 4, height: 24,
+    backgroundColor: "#64748b",
+    borderRadius: 2,
+  },
+  legGap: { width: 18 },
+});
+
 function FeatureRow({ icon, color, title, desc }: { icon: any; color: string; title: string; desc: string }) {
   return (
     <View style={s.featureRow}>
@@ -478,7 +538,6 @@ const s = StyleSheet.create({
 
   // Welcome hero
   heroWrap:   { alignItems: "center", marginBottom: 8 },
-  heroCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#6366f1", alignItems: "center", justifyContent: "center", shadowColor: "#6366f1", shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 0 }, elevation: 8 },
   heroSub:    { color: "#64748b", fontSize: 15, textAlign: "center", lineHeight: 22, marginTop: -4 },
 
   // Feature rows
