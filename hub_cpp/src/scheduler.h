@@ -36,6 +36,7 @@ struct HubSchedule {
   String target_type;  // "group" | "all"
   String target_id;
   bool   days[7] = {};  // [0]=Sun [1]=Mon ... [6]=Sat
+  String date;          // "YYYY-MM-DD" — specific date (overrides days when non-empty)
   String time;          // "HH:MM"
   bool   enabled = true;
   SegState state;
@@ -56,6 +57,7 @@ inline void saveSchedules() {
     o["target_id"]   = s.target_id;
     JsonArray days = o["days"].to<JsonArray>();
     for (int i = 0; i < 7; i++) if (s.days[i]) days.add(i);
+    if (s.date.length() > 0) o["date"] = s.date;
     o["time"]    = s.time;
     o["enabled"] = s.enabled;
     JsonObject st = o["state"].to<JsonObject>();
@@ -80,6 +82,7 @@ inline void loadSchedules() {
       int idx = d.as<int>();
       if (idx >= 0 && idx < 7) s.days[idx] = true;
     }
+    s.date    = o["date"].as<String>();
     s.time    = o["time"].as<String>();
     s.enabled = o["enabled"] | true;
     applyState(s.state, o["state"].as<JsonObjectConst>());
@@ -111,12 +114,20 @@ inline void checkSchedules() {
   char now[6];
   snprintf(now, sizeof(now), "%02d:%02d", t.tm_hour, t.tm_min);
 
+  char today[11];
+  snprintf(today, sizeof(today), "%04d-%02d-%02d", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
+
   int fired = 0;
   taskENTER_CRITICAL(&g_mux);
   for (auto& s : g_schedules) {
-    if (!s.enabled)         continue;
-    if (s.time != now)      continue;
-    if (!s.days[t.tm_wday]) continue;
+    if (!s.enabled)    continue;
+    if (s.time != now) continue;
+    // Specific date takes priority; fall back to weekday mask
+    if (s.date.length() > 0) {
+      if (s.date != today) continue;
+    } else {
+      if (!s.days[t.tm_wday]) continue;
+    }
 
     if (s.target_type == "group") {
       for (auto& g : g_groups) {

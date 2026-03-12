@@ -524,6 +524,7 @@ void setupServer() {
       o["target_id"]   = s.target_id;
       JsonArray days = o["days"].to<JsonArray>();
       for (int i = 0; i < 7; i++) if (s.days[i]) days.add(i);
+      if (s.date.length() > 0) o["date"] = s.date;
       o["time"]    = s.time;
       o["enabled"] = s.enabled;
       JsonObject st = o["state"].to<JsonObject>();
@@ -552,6 +553,7 @@ void setupServer() {
       for (JsonVariantConst d : jv["days"].as<JsonArrayConst>()) {
         int idx = d.as<int>(); if (idx >= 0 && idx < 7) s.days[idx] = true;
       }
+      if (jv["date"].is<const char*>()) s.date = jv["date"].as<String>();
       s.time    = jv["time"].as<String>();
       s.enabled = jv["enabled"] | true;
       if (jv["state"].is<JsonObjectConst>()) applyState(s.state, jv["state"].as<JsonObjectConst>());
@@ -591,6 +593,7 @@ void setupServer() {
           if (jv["target_type"].is<const char*>()) s.target_type = jv["target_type"].as<String>();
           if (jv["target_id"].is<const char*>())   s.target_id   = jv["target_id"].as<String>();
           if (jv["time"].is<const char*>())         s.time        = jv["time"].as<String>();
+          if (jv["date"].is<const char*>())         s.date        = jv["date"].as<String>();
           if (jv["enabled"].is<bool>())             s.enabled     = jv["enabled"].as<bool>();
           if (jv["days"].is<JsonArrayConst>()) {
             for (int i = 0; i < 7; i++) s.days[i] = false;

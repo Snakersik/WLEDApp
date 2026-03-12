@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Modal,
   Platform,
   RefreshControl,
@@ -21,6 +22,7 @@ import axios from "axios";
 import { useAuth } from "../../src/context/AuthContext";
 import { useHub } from "../../src/context/HubContext";
 import { C } from "../../src/ui/theme";
+import { PresetPreviewModal } from "../../src/components/PresetPreviewModal";
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + "/api";
 
@@ -29,7 +31,6 @@ const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 // ── Types ─────────────────────────────────────────────────────
 
-/** State sent directly to hub — no preset_id, concrete values */
 interface HubState {
   on: boolean;
   bri?: number;
@@ -42,10 +43,11 @@ interface HubState {
 interface Schedule {
   id: string;
   name: string;
-  target_type: string;   // "group" | "all"
+  target_type: string;
   target_id: string;
   days: number[];
-  time: string;          // "HH:MM"
+  date?: string;   // "YYYY-MM-DD" — specific date (overrides days)
+  time: string;    // "HH:MM"
   enabled: boolean;
   state: HubState;
 }
@@ -74,6 +76,18 @@ function fmtDays(days: number[]): string {
   return [...days].sort().map(d => DAY_LABELS[d]).join(", ");
 }
 
+function fmtDate(d: string): string {
+  const [y, m, dd] = d.split("-");
+  return `${dd}.${m}.${y}`;
+}
+
+function dateToYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
 function resolvePreset(preset: Preset, on: boolean): HubState {
   return {
     on,
@@ -91,16 +105,19 @@ interface FormState {
   name: string;
   target_type: "group" | "all";
   target_id: string;
+  date_mode: "days" | "specific";
   days: number[];
+  date: string | null;
   time: string;
   enabled: boolean;
   on: boolean;
-  preset_id: string | null;  // UI-only, resolved before sending
+  preset_id: string | null;
 }
 
 const defaultForm = (): FormState => ({
   name: "", target_type: "group", target_id: "",
-  days: [1,2,3,4,5], time: "22:00", enabled: true,
+  date_mode: "days", days: [1,2,3,4,5], date: null,
+  time: "22:00", enabled: true,
   on: true, preset_id: null,
 });
 
@@ -121,7 +138,19 @@ export default function SchedulesScreen() {
   const [editId,         setEditId]         = useState<string | null>(null);
   const [form,           setForm]           = useState<FormState>(defaultForm());
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [saving,         setSaving]         = useState(false);
+  const [previewPreset,  setPreviewPreset]  = useState<Preset | null>(null);
+
+  // Android hardware back button closes modal
+  useEffect(() => {
+    if (!modalOpen) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setModalOpen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [modalOpen]);
 
   // ── Fetch ───────────────────────────────────────────────────
 
@@ -173,26 +202,26 @@ export default function SchedulesScreen() {
     }
   };
 
-  const toggleSchedule = async (s: Schedule) => {
+  const toggleSchedule = async (sc: Schedule) => {
     try {
-      const res = await hubFetch(`/schedules/${s.id}/toggle`, { method: "PATCH" });
+      const res = await hubFetch(`/schedules/${sc.id}/toggle`, { method: "PATCH" });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setSchedules(prev => prev.map(x => x.id === s.id ? { ...x, enabled: data.enabled } : x));
+      setSchedules(prev => prev.map(x => x.id === sc.id ? { ...x, enabled: data.enabled } : x));
     } catch {
       Alert.alert("Błąd", "Nie można zmienić statusu");
     }
   };
 
-  const deleteSchedule = (s: Schedule) => {
-    Alert.alert("Usuń harmonogram", `Usunąć "${s.name}"?`, [
+  const deleteSchedule = (sc: Schedule) => {
+    Alert.alert("Usuń harmonogram", `Usunąć "${sc.name}"?`, [
       { text: "Anuluj", style: "cancel" },
       {
         text: "Usuń", style: "destructive",
         onPress: async () => {
           try {
-            await hubFetch(`/schedules/${s.id}`, { method: "DELETE" });
-            setSchedules(prev => prev.filter(x => x.id !== s.id));
+            await hubFetch(`/schedules/${sc.id}`, { method: "DELETE" });
+            setSchedules(prev => prev.filter(x => x.id !== sc.id));
           } catch {
             Alert.alert("Błąd", "Nie można usunąć harmonogramu");
           }
@@ -209,52 +238,75 @@ export default function SchedulesScreen() {
     setModalOpen(true);
   };
 
-  const openEdit = (s: Schedule) => {
-    // Reverse-map state to form — find matching preset by fx
-    const matchPreset = presets.find(p => p.wled_fx === s.state.fx) ?? null;
-    setEditId(s.id);
+  const openEdit = (sc: Schedule) => {
+    const matchPreset = presets.find(p => p.wled_fx === sc.state.fx) ?? null;
+    setEditId(sc.id);
     setForm({
-      name:        s.name,
-      target_type: (s.target_type as "group" | "all"),
-      target_id:   s.target_id,
-      days:        s.days,
-      time:        s.time,
-      enabled:     s.enabled,
-      on:          s.state.on,
+      name:        sc.name,
+      target_type: (sc.target_type as "group" | "all"),
+      target_id:   sc.target_id,
+      date_mode:   sc.date ? "specific" : "days",
+      days:        sc.days,
+      date:        sc.date ?? null,
+      time:        sc.time,
+      enabled:     sc.enabled,
+      on:          sc.state.on,
       preset_id:   matchPreset?.id ?? null,
     });
     setModalOpen(true);
   };
 
   const saveSchedule = async () => {
-    if (!form.name.trim())            { Alert.alert("Błąd", "Podaj nazwę"); return; }
-    if ((form.days?.length ?? 0) === 0) { Alert.alert("Błąd", "Wybierz co najmniej jeden dzień"); return; }
-    if (!hubIp)                       { Alert.alert("Błąd", "Hub offline"); return; }
+    if (!form.name.trim()) { Alert.alert("Błąd", "Podaj nazwę"); return; }
+    if (form.date_mode === "days" && (form.days?.length ?? 0) === 0) {
+      Alert.alert("Błąd", "Wybierz co najmniej jeden dzień"); return;
+    }
+    if (form.date_mode === "specific" && !form.date) {
+      Alert.alert("Błąd", "Wybierz datę"); return;
+    }
+    if (!hubIp) { Alert.alert("Błąd", "Hub offline"); return; }
 
-    // Resolve preset → concrete state
+    // Duplicate check — same target + same time + overlapping days/date
+    const conflict = schedules.find(sc => {
+      if (editId && sc.id === editId) return false;
+      if (sc.target_type !== form.target_type) return false;
+      if (form.target_type === "group" && sc.target_id !== form.target_id) return false;
+      if (sc.time !== form.time) return false;
+      if (form.date_mode === "specific") return sc.date === form.date;
+      return form.days.some(d => sc.days.includes(d));
+    });
+    if (conflict) {
+      Alert.alert(
+        "Konflikt harmonogramów",
+        `"${conflict.name}" już istnieje dla tego celu o tej godzinie. Zmień godzinę lub dni.`,
+      );
+      return;
+    }
+
     const preset = form.preset_id ? presets.find(p => p.id === form.preset_id) : null;
-    const state: HubState = preset
-      ? resolvePreset(preset, form.on)
-      : { on: form.on };
+    const state: HubState = preset ? resolvePreset(preset, form.on) : { on: form.on };
 
-    const body = {
+    const body: Record<string, unknown> = {
       name:        form.name.trim(),
       target_type: form.target_type,
       target_id:   form.target_id,
-      days:        form.days,
       time:        form.time,
       enabled:     form.enabled,
       state,
     };
 
+    if (form.date_mode === "specific" && form.date) {
+      body.date = form.date;
+      body.days = [];
+    } else {
+      body.days = form.days;
+    }
+
     setSaving(true);
     try {
-      let res: Response;
-      if (editId) {
-        res = await hubFetch(`/schedules/${editId}`, { method: "PATCH", body: JSON.stringify(body) });
-      } else {
-        res = await hubFetch("/schedules", { method: "POST", body: JSON.stringify(body) });
-      }
+      const res = editId
+        ? await hubFetch(`/schedules/${editId}`, { method: "PATCH", body: JSON.stringify(body) })
+        : await hubFetch("/schedules", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new Error();
       setModalOpen(false);
       fetchAll();
@@ -266,10 +318,10 @@ export default function SchedulesScreen() {
   };
 
   const toggleDay = (day: number) => {
-    const next = form.days.includes(day)
-      ? form.days.filter(d => d !== day)
-      : [...form.days, day];
-    setForm(f => ({ ...f, days: next }));
+    setForm(f => ({
+      ...f,
+      days: f.days.includes(day) ? f.days.filter(d => d !== day) : [...f.days, day],
+    }));
   };
 
   const handleTimeChange = (_: any, date?: Date) => {
@@ -280,13 +332,19 @@ export default function SchedulesScreen() {
     setForm(f => ({ ...f, time: `${h}:${m}` }));
   };
 
-  const getTargetName = (s: Schedule) =>
-    s.target_type === "group"
-      ? (groups.find(g => g.id === s.target_id)?.name ?? "Nieznana grupa")
+  const handleDateChange = (_: any, date?: Date) => {
+    if (Platform.OS === "android") setShowDatePicker(false);
+    if (!date) return;
+    setForm(f => ({ ...f, date: dateToYMD(date) }));
+  };
+
+  const getTargetName = (sc: Schedule) =>
+    sc.target_type === "group"
+      ? (groups.find(g => g.id === sc.target_id)?.name ?? "Nieznana grupa")
       : "Wszystkie";
 
-  const getPresetName = (s: Schedule) =>
-    presets.find(p => p.wled_fx === s.state.fx)?.name ?? null;
+  const getPresetName = (sc: Schedule) =>
+    presets.find(p => p.wled_fx === sc.state.fx)?.name ?? null;
 
   // ── Render ──────────────────────────────────────────────────
 
@@ -302,6 +360,8 @@ export default function SchedulesScreen() {
     const [h, m] = (form.time ?? "22:00").split(":").map(Number);
     const d = new Date(); d.setHours(h, m, 0, 0); return d;
   })();
+
+  const specificDateObj = form.date ? new Date(form.date + "T12:00:00") : new Date();
 
   const targetOptions = form.target_type === "group"
     ? groups.map(g => ({ id: g.id, label: g.name }))
@@ -348,13 +408,18 @@ export default function SchedulesScreen() {
                     <Text style={s.cardTarget}>
                       {sc.target_type === "group" ? "Grupa" : "Wszystkie"}: {getTargetName(sc)}
                     </Text>
-                    <Text style={s.cardDays}>{fmtDays(sc.days)}</Text>
+                    {sc.date
+                      ? <Text style={s.cardDays}>{fmtDate(sc.date)}</Text>
+                      : <Text style={s.cardDays}>{fmtDays(sc.days)}</Text>
+                    }
                     {getPresetName(sc) && (
                       <Text style={s.cardPreset}>Efekt: {getPresetName(sc)}</Text>
                     )}
                   </View>
                   <View style={s.cardRight}>
-                    <Text style={s.cardTime}>{sc.time}</Text>
+                    <Text style={[s.cardTime, sc.state.on ? s.cardTimeOn : s.cardTimeOff]}>
+                      {sc.time}
+                    </Text>
                     <Switch
                       value={sc.enabled}
                       onValueChange={() => toggleSchedule(sc)}
@@ -373,10 +438,17 @@ export default function SchedulesScreen() {
       </ScrollView>
 
       {/* ── Add / Edit modal ─────────────────────────────────── */}
-      <Modal visible={modalOpen} transparent animationType="slide">
+      <Modal visible={modalOpen} transparent animationType="slide" onRequestClose={() => setModalOpen(false)}>
         <View style={s.overlay}>
           <ScrollView style={s.modal} contentContainerStyle={s.modalScroll} keyboardShouldPersistTaps="handled">
-            <Text style={s.modalTitle}>{editId ? "Edytuj harmonogram" : "Nowy harmonogram"}</Text>
+
+            {/* Header row with X button */}
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>{editId ? "Edytuj harmonogram" : "Nowy harmonogram"}</Text>
+              <TouchableOpacity style={s.modalCloseBtn} onPress={() => setModalOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={20} color={C.text2} />
+              </TouchableOpacity>
+            </View>
 
             {/* Name */}
             <Text style={s.label}>Nazwa</Text>
@@ -425,22 +497,76 @@ export default function SchedulesScreen() {
               </>
             )}
 
-            {/* Days */}
-            <Text style={s.label}>Dni tygodnia</Text>
-            <View style={s.daysRow}>
-              {ALL_DAYS.map(day => {
-                const active = form.days.includes(day);
-                return (
-                  <TouchableOpacity
-                    key={day}
-                    style={[s.dayBtn, active && s.dayBtnActive]}
-                    onPress={() => toggleDay(day)}
-                  >
-                    <Text style={[s.dayBtnText, active && s.dayBtnTextActive]}>{DAY_LABELS[day]}</Text>
-                  </TouchableOpacity>
-                );
-              })}
+            {/* Date mode selector */}
+            <Text style={s.label}>Powtarzanie</Text>
+            <View style={s.toggle}>
+              {(["days", "specific"] as const).map(mode => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[s.toggleBtn, form.date_mode === mode && s.toggleBtnActive]}
+                  onPress={() => setForm(f => ({ ...f, date_mode: mode }))}
+                >
+                  <Text style={[s.toggleBtnText, form.date_mode === mode && s.toggleBtnTextActive]}>
+                    {mode === "days" ? "Dni tygodnia" : "Konkretna data"}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
+
+            {/* Days of week */}
+            {form.date_mode === "days" && (
+              <>
+                <Text style={s.label}>Dni tygodnia</Text>
+                <View style={s.daysRow}>
+                  {ALL_DAYS.map(day => {
+                    const active = form.days.includes(day);
+                    return (
+                      <TouchableOpacity
+                        key={day}
+                        style={[s.dayBtn, active && s.dayBtnActive]}
+                        onPress={() => toggleDay(day)}
+                      >
+                        <Text style={[s.dayBtnText, active && s.dayBtnTextActive]}>{DAY_LABELS[day]}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            {/* Specific date */}
+            {form.date_mode === "specific" && (
+              <>
+                <Text style={s.label}>Data</Text>
+                {Platform.OS === "android" ? (
+                  <TouchableOpacity style={s.timeBtn} onPress={() => setShowDatePicker(true)}>
+                    <Ionicons name="calendar-outline" size={18} color={C.primary2} />
+                    <Text style={s.timeBtnText}>
+                      {form.date ? fmtDate(form.date) : "Wybierz datę…"}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <DateTimePicker
+                    value={specificDateObj}
+                    mode="date"
+                    display="spinner"
+                    onChange={handleDateChange}
+                    themeVariant="dark"
+                    minimumDate={new Date()}
+                    style={{ alignSelf: "flex-start" }}
+                  />
+                )}
+                {showDatePicker && Platform.OS === "android" && (
+                  <DateTimePicker
+                    value={specificDateObj}
+                    mode="date"
+                    display="default"
+                    onChange={handleDateChange}
+                    minimumDate={new Date()}
+                  />
+                )}
+              </>
+            )}
 
             {/* Time */}
             <Text style={s.label}>Godzina</Text>
@@ -463,39 +589,64 @@ export default function SchedulesScreen() {
               <DateTimePicker value={timeDate} mode="time" display="default" onChange={handleTimeChange} />
             )}
 
-            {/* On/Off */}
+            {/* Action — explicit Włącz / Wyłącz buttons */}
             <Text style={s.label}>Akcja</Text>
-            <View style={s.actionRow}>
-              <Text style={s.actionLabel}>Włącz / Wyłącz</Text>
-              <Switch
-                value={form.on}
-                onValueChange={v => setForm(f => ({ ...f, on: v }))}
-                trackColor={{ false: C.bgCard2, true: C.green }}
-                thumbColor={form.on ? C.green : C.text3}
-              />
+            <View style={s.actionBtns}>
+              <TouchableOpacity
+                style={[s.actionBtn, form.on && s.actionBtnOn]}
+                onPress={() => setForm(f => ({ ...f, on: true }))}
+              >
+                <Ionicons name="power" size={16} color={form.on ? "#fff" : C.text3} />
+                <Text style={[s.actionBtnText, form.on && s.actionBtnTextActive]}>Włącz</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.actionBtn, !form.on && s.actionBtnOff]}
+                onPress={() => setForm(f => ({ ...f, on: false }))}
+              >
+                <Ionicons name="power-outline" size={16} color={!form.on ? "#fff" : C.text3} />
+                <Text style={[s.actionBtnText, !form.on && s.actionBtnTextActive]}>Wyłącz</Text>
+              </TouchableOpacity>
             </View>
 
-            {/* Preset picker */}
+            {/* Effect picker — vertical list with preview buttons */}
             {form.on && (
               <>
                 <Text style={[s.label, { marginTop: 8 }]}>Efekt (opcjonalnie)</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.pickerRow}>
+                <View style={s.effectList}>
                   <TouchableOpacity
-                    style={[s.chip, !form.preset_id && s.chipActive]}
+                    style={[s.effectRow, !form.preset_id && s.effectRowActive]}
                     onPress={() => setForm(f => ({ ...f, preset_id: null }))}
                   >
-                    <Text style={[s.chipText, !form.preset_id && s.chipTextActive]}>Brak</Text>
+                    <View style={s.effectRowLeft}>
+                      <View style={[s.effectDot, !form.preset_id && s.effectDotActive]} />
+                      <Text style={[s.effectRowText, !form.preset_id && s.effectRowTextActive]}>
+                        Brak efektu
+                      </Text>
+                    </View>
                   </TouchableOpacity>
+
                   {presets.map(p => (
                     <TouchableOpacity
                       key={p.id}
-                      style={[s.chip, form.preset_id === p.id && s.chipActive]}
+                      style={[s.effectRow, form.preset_id === p.id && s.effectRowActive]}
                       onPress={() => setForm(f => ({ ...f, preset_id: p.id }))}
                     >
-                      <Text style={[s.chipText, form.preset_id === p.id && s.chipTextActive]}>{p.name}</Text>
+                      <View style={s.effectRowLeft}>
+                        <View style={[s.effectDot, form.preset_id === p.id && s.effectDotActive]} />
+                        <Text style={[s.effectRowText, form.preset_id === p.id && s.effectRowTextActive]} numberOfLines={1}>
+                          {p.name}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={s.previewBtn}
+                        hitSlop={8}
+                        onPress={() => setPreviewPreset(p)}
+                      >
+                        <Ionicons name="eye-outline" size={16} color={C.text3} />
+                      </TouchableOpacity>
                     </TouchableOpacity>
                   ))}
-                </ScrollView>
+                </View>
               </>
             )}
 
@@ -514,6 +665,13 @@ export default function SchedulesScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Effect preview modal */}
+      <PresetPreviewModal
+        visible={!!previewPreset}
+        onClose={() => setPreviewPreset(null)}
+        preset={previewPreset}
+      />
     </SafeAreaView>
   );
 }
@@ -547,13 +705,18 @@ const s = StyleSheet.create({
   cardDays:   { fontSize: 12, color: C.primary2, marginBottom: 2 },
   cardPreset: { fontSize: 12, color: C.amber },
   cardRight:  { alignItems: "flex-end", justifyContent: "space-between", gap: 8 },
-  cardTime:   { fontSize: 22, fontWeight: "800", color: C.text, letterSpacing: -0.5 },
+  cardTime:   { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
+  cardTimeOn: { color: C.text },
+  cardTimeOff:{ color: C.text3 },
   deleteBtn:  { padding: 4 },
 
   overlay:    { flex: 1, backgroundColor: C.bgOverlay, justifyContent: "flex-end" },
   modal:      { backgroundColor: "#0b1120", maxHeight: "92%", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderColor: C.borderMd },
   modalScroll:{ padding: 24, gap: 4, paddingBottom: 40 },
-  modalTitle: { fontSize: 20, fontWeight: "800", color: C.text, marginBottom: 16 },
+
+  modalHeader:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
+  modalTitle:    { fontSize: 20, fontWeight: "800", color: C.text },
+  modalCloseBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center" },
 
   label:      { fontSize: 12, fontWeight: "700", color: C.text3, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 14, marginBottom: 6 },
   input:      { backgroundColor: C.bgInput, borderRadius: 12, padding: 14, color: C.text, fontSize: 15, borderWidth: 1, borderColor: C.border },
@@ -580,8 +743,24 @@ const s = StyleSheet.create({
   timeBtn:        { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.bgInput, borderRadius: 12, borderWidth: 1, borderColor: C.borderMd, padding: 14 },
   timeBtnText:    { fontSize: 20, fontWeight: "800", color: C.text, letterSpacing: -0.5 },
 
-  actionRow:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: C.bgCard, borderRadius: 12, borderWidth: 1, borderColor: C.border, paddingHorizontal: 14, paddingVertical: 12 },
-  actionLabel: { fontSize: 14, color: C.text, fontWeight: "600" },
+  // Action buttons
+  actionBtns:        { flexDirection: "row", gap: 10 },
+  actionBtn:         { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.bgCard },
+  actionBtnOn:       { backgroundColor: "rgba(34,197,94,0.2)", borderColor: "#22c55e" },
+  actionBtnOff:      { backgroundColor: "rgba(239,68,68,0.2)", borderColor: "#ef4444" },
+  actionBtnText:     { fontSize: 15, fontWeight: "700", color: C.text3 },
+  actionBtnTextActive: { color: "#fff" },
+
+  // Effect list
+  effectList:         { borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: "hidden", marginBottom: 4 },
+  effectRow:          { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border + "60", backgroundColor: C.bgCard },
+  effectRowActive:    { backgroundColor: "rgba(99,102,241,0.12)" },
+  effectRowLeft:      { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  effectDot:          { width: 8, height: 8, borderRadius: 4, backgroundColor: C.border },
+  effectDotActive:    { backgroundColor: C.primary },
+  effectRowText:      { fontSize: 14, color: C.text2, fontWeight: "500", flex: 1 },
+  effectRowTextActive:{ color: C.primary2, fontWeight: "700" },
+  previewBtn:         { padding: 6, borderRadius: 8, backgroundColor: C.bgCard2 },
 
   hintText:    { fontSize: 13, color: C.text3, fontStyle: "italic", paddingVertical: 8 },
 
