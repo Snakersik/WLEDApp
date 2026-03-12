@@ -44,11 +44,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const loadStoredAuth = async () => {
     try {
       const storedToken = await AsyncStorage.getItem("token");
-      const storedUser = await AsyncStorage.getItem("user");
+      const storedUser  = await AsyncStorage.getItem("user");
 
       if (storedToken && storedUser) {
         setToken(storedToken);
-        setUser(JSON.parse(storedUser));
+        setUser(JSON.parse(storedUser)); // set cached user immediately so UI doesn't wait
+
+        // Always refresh from backend to get fresh onboarding_completed + other fields
+        try {
+          const res = await axios.get(`${API_URL}/auth/me`, {
+            headers: { Authorization: `Bearer ${storedToken}` },
+          });
+          const freshUser = res.data as User;
+          setUser(freshUser);
+          await AsyncStorage.setItem("user", JSON.stringify(freshUser));
+        } catch {
+          // network unreachable — fall back to cached user
+        }
       }
     } catch (error) {
       console.error("Failed to load auth:", error);
