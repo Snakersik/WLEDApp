@@ -265,7 +265,6 @@ export default function GroupControlScreen() {
             .catch(() => dbg("upsertGroup failed (hub may be offline)"));
         });
 
-      return () => stopStream();
     }, [group, hubIp, groupDevices, id, stopStream]),
   );
 

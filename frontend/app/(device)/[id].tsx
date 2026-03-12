@@ -10,7 +10,6 @@ import { useLanguage } from "../../src/context/LanguageContext";
 import { useHub } from "../../src/context/HubContext";
 import { HubService } from "../../src/services/hubService";
 
-import { WLEDLivePreview } from "../../src/components/WLEDLivePreview";
 import { UShapeLiveBorder } from "../../src/components/UShapeLiveBorder";
 
 import { EffectSliders } from "../../src/features/deviceControl/components/EffectSliders";
@@ -164,7 +163,6 @@ export default function DeviceControlScreen() {
             .catch(() => {});
         });
 
-      return () => stopStream();
     }, [device, hubIp, id, stopStream]),
   );
 
@@ -472,21 +470,6 @@ export default function DeviceControlScreen() {
             },
           ]}
         >
-          {!!device?.ip_address && (
-            <View style={styles.section}>
-              <WLEDLivePreview
-                ip={device.ip_address}
-                height={210}
-                ledCount={device?.led_count ?? 119}
-                label={t("preview") ?? "Preview"}
-                layoutType="u-shape"
-                topLeds={10}
-                sideLeds={25}
-                pollMs={500}
-              />
-            </View>
-          )}
-
           {selectedPreset !== null && (
             <EffectSliders
               presetName={selectedPresetObj?.name}

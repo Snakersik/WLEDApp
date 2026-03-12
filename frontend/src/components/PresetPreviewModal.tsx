@@ -858,17 +858,17 @@ function computeColors(
 
 // ── Effect name lookup ────────────────────────────────────────────────────────
 const FX_NAMES: Record<number, string> = {
-  0: "Solid", 1: "Blink", 2: "Breathe", 3: "Color Wipe", 4: "Wipe Random",
-  5: "Wipe Reversed", 8: "Color Loop", 9: "Rainbow", 10: "Fade",
-  11: "Scanner", 12: "Strobe", 13: "Strobe Rainbow", 16: "Running Lights",
-  17: "Twinkle", 18: "Twinkle Random", 19: "Twinkle Fade", 21: "Dissolve",
-  25: "Comet", 28: "Chase Rainbow", 35: "Colorful", 38: "Juggle",
-  40: "Sparkle", 41: "Sparkle Dark", 42: "Fireworks", 44: "Fireworks 1D",
-  45: "Rain", 51: "Scanner Dual", 53: "Bouncing Balls", 57: "Lightning",
-  65: "Halloween Eyes", 66: "Fire", 67: "Fire Flicker", 68: "Gradient",
-  76: "Meteor", 79: "Ripple", 88: "Colorwaves",
-  90: "BPM", 91: "Fill Noise", 100: "Sunrise", 109: "Twinklefox",
-  110: "Twinklefox Party", 112: "Heartbeat", 116: "Candle", 117: "Starburst",
+  0: "Stały kolor", 1: "Miganie", 2: "Oddychanie", 3: "Zamiatanie kolorów", 4: "Losowe zamiatanie",
+  5: "Zamiatanie wsteczne", 8: "Pętla kolorów", 9: "Tęcza", 10: "Zanikanie",
+  11: "Skaner", 12: "Stroboskop", 13: "Tęczowy stroboskop", 16: "Biegnące światła",
+  17: "Migotanie", 18: "Losowe migotanie", 19: "Zanikające migotanie", 21: "Rozpuszczanie",
+  25: "Kometa", 28: "Tęczowe ściganie", 35: "Kolorowe segmenty", 38: "Żonglerka",
+  40: "Iskry", 41: "Ciemne iskry", 42: "Fajerwerki", 44: "Fajerwerki 1D",
+  45: "Deszcz", 51: "Podwójny skaner", 53: "Odbijające się kulki", 57: "Błyskawica",
+  65: "Halloweenowe oczy", 66: "Ogień", 67: "Migoczący ogień", 68: "Gradient",
+  76: "Meteor", 79: "Fala", 88: "Fale barw",
+  90: "BPM", 91: "Szum wypełnienia", 100: "Wschód słońca", 109: "Twinklefox",
+  110: "Twinklefox Party", 112: "Bicie serca", 116: "Świeczka", 117: "Rozbłysk gwiazdy",
   126: "Pacifica",
 };
 
