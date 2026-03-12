@@ -182,20 +182,46 @@ export default function OnboardingScreen() {
             {/* ── WELCOME ── */}
             {step === "welcome" && (
               <Card>
-                <Ionicons name="hardware-chip-outline" size={64} color="#6366f1" style={s.icon} />
-                <Text style={s.heading}>Witaj w systemie!</Text>
-                <Text style={s.body}>
-                  Skonfigurujemy Twój system w kilku krokach:{"\n\n"}
-                  {"  "}1. Połącz Hub z siecią WiFi{"\n"}
-                  {"  "}2. Automatycznie skonfiguruj kinkiety WLED{"\n"}
-                  {"  "}3. Utwórz pierwszą grupę sterowania
+                {/* Hero */}
+                <View style={s.heroWrap}>
+                  <View style={s.heroCircle}>
+                    <Ionicons name="bulb" size={40} color="#fff" />
+                  </View>
+                </View>
+
+                <Text style={s.heading}>Inteligentne oświetlenie{"\n"}w Twoim domu</Text>
+                <Text style={s.heroSub}>
+                  Skonfiguruj swój system w 3 minuty — bez kabli, bez technika.
                 </Text>
+
+                {/* Feature rows */}
+                <View style={s.featureList}>
+                  <FeatureRow
+                    icon="hardware-chip-outline"
+                    color="#6366f1"
+                    title="Podłącz Hub"
+                    desc="Łącznik WiFi który zarządza wszystkimi lampami w sieci lokalnej."
+                  />
+                  <FeatureRow
+                    icon="flash-outline"
+                    color="#f59e0b"
+                    title="Wykryj kinkiety"
+                    desc="Aplikacja automatycznie znajdzie lampy WLED w Twojej sieci."
+                  />
+                  <FeatureRow
+                    icon="layers-outline"
+                    color="#22c55e"
+                    title="Steruj jako grupą"
+                    desc="Jeden suwak jasności i jeden efekt dla wszystkich lamp naraz."
+                  />
+                </View>
+
                 <PrimaryBtn
-                  label="Rozpocznij konfigurację"
+                  label="Zaczynamy →"
                   onPress={() => router.push("/setup?returnTo=/onboarding" as any)}
                 />
                 <TouchableOpacity onPress={skipOnboarding} style={s.skipBtn}>
-                  <Text style={s.skipText}>Pomiń na razie</Text>
+                  <Text style={s.skipText}>Mam już skonfigurowany system — pomiń</Text>
                 </TouchableOpacity>
               </Card>
             )}
@@ -203,38 +229,54 @@ export default function OnboardingScreen() {
             {/* ── CHECK ── */}
             {step === "check" && (
               <Card>
-                <Ionicons name="checkmark-circle" size={56} color="#22c55e" style={s.icon} />
-                <Text style={s.heading}>Hub skonfigurowany!</Text>
-
-                {hub && (
-                  <View style={s.infoRow}>
+                {/* Hub status bar */}
+                <View style={s.statusBar}>
+                  <View style={s.statusBarLeft}>
+                    <View style={s.statusDotGreen} />
                     <Ionicons name="hardware-chip" size={16} color="#22c55e" />
-                    <Text style={s.infoText}>{hub.name ?? "Hub"} — {hub.ip_address}</Text>
+                    <Text style={s.statusBarText}>{hub?.name ?? "Hub"} połączony</Text>
                   </View>
-                )}
+                  {hub?.ip_address ? (
+                    <Text style={s.statusBarIp}>{hub.ip_address}</Text>
+                  ) : null}
+                </View>
 
                 {devices.length > 0 ? (
                   <>
-                    <Text style={s.label}>Znalezione urządzenia ({devices.length}):</Text>
-                    <View style={s.chipRow}>
-                      {devices.map(d => (
-                        <View key={d.id} style={s.deviceChip}>
-                          <Ionicons name="bulb" size={12} color="#a5b4fc" />
-                          <Text style={s.deviceChipText}>{d.name}</Text>
+                    <View style={s.devFoundWrap}>
+                      <Ionicons name="bulb" size={32} color="#f59e0b" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.devFoundTitle}>
+                          Znaleziono {devices.length} {devices.length === 1 ? "kinkiet" : devices.length < 5 ? "kinkiety" : "kinkietów"}
+                        </Text>
+                        <Text style={s.devFoundSub}>Wszystkie gotowe do sterowania</Text>
+                      </View>
+                    </View>
+
+                    <View style={s.devList}>
+                      {devices.map((d, i) => (
+                        <View key={d.id} style={[s.devListRow, i < devices.length - 1 && s.devListRowBorder]}>
+                          <View style={s.devListDot} />
+                          <Text style={s.devListName}>{d.name}</Text>
+                          {d.ip_address ? <Text style={s.devListIp}>{d.ip_address}</Text> : null}
                         </View>
                       ))}
                     </View>
-                    <PrimaryBtn label="Dalej — utwórz grupę" onPress={() => setStep("group")} />
+
+                    <PrimaryBtn label="Dalej — utwórz grupę →" onPress={() => setStep("group")} />
                   </>
                 ) : (
                   <>
-                    <Text style={s.body}>
-                      Hub jest online, ale nie znaleziono jeszcze kinkietów.{"\n"}
-                      Upewnij się, że kinkiety są włączone i spróbuj ponownie.
-                    </Text>
-                    <PrimaryBtn label="Wróć do setupu" onPress={() => router.push("/setup?returnTo=/onboarding" as any)} />
+                    <View style={s.devFoundWrap}>
+                      <Ionicons name="bulb-outline" size={32} color="#64748b" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.devFoundTitle}>Brak kinkietów</Text>
+                        <Text style={s.devFoundSub}>Upewnij się że lampy są włączone i w tej samej sieci WiFi co Hub.</Text>
+                      </View>
+                    </View>
+                    <PrimaryBtn label="Wróć i wyszukaj ponownie" onPress={() => router.push("/setup?returnTo=/onboarding" as any)} />
                     <TouchableOpacity onPress={() => setStep("group")} style={s.skipBtn}>
-                      <Text style={s.skipText}>Pomiń — przejdź dalej</Text>
+                      <Text style={s.skipText}>Dodaj kinkiety później</Text>
                     </TouchableOpacity>
                   </>
                 )}
@@ -345,6 +387,20 @@ function SummaryRow({ icon, label, value, ok }: { icon: any; label: string; valu
   );
 }
 
+function FeatureRow({ icon, color, title, desc }: { icon: any; color: string; title: string; desc: string }) {
+  return (
+    <View style={s.featureRow}>
+      <View style={[s.featureIcon, { backgroundColor: color + "22", borderColor: color + "44" }]}>
+        <Ionicons name={icon} size={22} color={color} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={s.featureTitle}>{title}</Text>
+        <Text style={s.featureDesc}>{desc}</Text>
+      </View>
+    </View>
+  );
+}
+
 function suggestGroupName(devs: Device[]): string {
   const locs = devs.map(d => d.location?.trim() ?? "").filter(Boolean);
   if (locs.length === 0) return "";
@@ -418,5 +474,35 @@ const s = StyleSheet.create({
   btnDisabled: { opacity: 0.5 },
   btnText:     { color: "#fff", fontSize: 16, fontWeight: "700" },
   skipBtn:     { alignItems: "center", paddingVertical: 8 },
-  skipText:    { color: "#64748b", fontSize: 14 },
+  skipText:    { color: "#64748b", fontSize: 14, textAlign: "center" },
+
+  // Welcome hero
+  heroWrap:   { alignItems: "center", marginBottom: 8 },
+  heroCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#6366f1", alignItems: "center", justifyContent: "center", shadowColor: "#6366f1", shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 0 }, elevation: 8 },
+  heroSub:    { color: "#64748b", fontSize: 15, textAlign: "center", lineHeight: 22, marginTop: -4 },
+
+  // Feature rows
+  featureList: { gap: 14, marginVertical: 4 },
+  featureRow:  { flexDirection: "row", alignItems: "flex-start", gap: 14 },
+  featureIcon: { width: 44, height: 44, borderRadius: 13, borderWidth: 1, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  featureTitle:{ color: "#f1f5f9", fontSize: 15, fontWeight: "700", marginBottom: 2 },
+  featureDesc: { color: "#64748b", fontSize: 13, lineHeight: 18 },
+
+  // Check step
+  statusBar:     { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "rgba(34,197,94,0.08)", borderRadius: 12, borderWidth: 1, borderColor: "rgba(34,197,94,0.25)", paddingHorizontal: 14, paddingVertical: 10 },
+  statusBarLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  statusDotGreen:{ width: 7, height: 7, borderRadius: 4, backgroundColor: "#22c55e" },
+  statusBarText: { color: "#86efac", fontSize: 14, fontWeight: "600" },
+  statusBarIp:   { color: "#475569", fontSize: 12, fontFamily: "monospace" as any },
+
+  devFoundWrap:  { flexDirection: "row", alignItems: "flex-start", gap: 14, backgroundColor: "#0f172a", borderRadius: 12, padding: 14 },
+  devFoundTitle: { color: "#f1f5f9", fontSize: 16, fontWeight: "700" },
+  devFoundSub:   { color: "#64748b", fontSize: 13, marginTop: 2, lineHeight: 18 },
+
+  devList:       { backgroundColor: "#0f172a", borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: "#1e293b" },
+  devListRow:    { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
+  devListRowBorder: { borderBottomWidth: 1, borderBottomColor: "#1e293b" },
+  devListDot:    { width: 6, height: 6, borderRadius: 3, backgroundColor: "#6366f1" },
+  devListName:   { color: "#f1f5f9", fontSize: 14, fontWeight: "600", flex: 1 },
+  devListIp:     { color: "#475569", fontSize: 12 },
 });
