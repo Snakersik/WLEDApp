@@ -43,6 +43,7 @@ import {
   type Preset,
 } from "../../src/features/deviceControl";
 import { EffectSliders } from "../../src/features/deviceControl/components/EffectSliders";
+import { ControlTutorialModal } from "../../src/features/deviceControl/components/ControlTutorialModal";
 
 /**
  * ==========================================
@@ -50,8 +51,6 @@ import { EffectSliders } from "../../src/features/deviceControl/components/Effec
  * ==========================================
  */
 const DEBUG = true;
-// direct fetch z frontu OFF (u Ciebie Network Error)
-const DISABLE_DIRECT_WLED_FETCH = true;
 
 console.log(
   "[GROUP_FILE_LOADED] app/(group)/[id].tsx DDP_HUB_MODE v2026-02-24",
@@ -84,72 +83,8 @@ type Device = {
   is_online: boolean;
 };
 
-type WLEDState = {
-  on?: boolean;
-  bri?: number;
-  seg?: Array<{
-    col?: Array<[number, number, number, number?]>;
-  }>;
-};
-
-function parseRgbFromState(state: WLEDState): [number, number, number] | null {
-  const col = state?.seg?.[0]?.col?.[0];
-  if (Array.isArray(col) && col.length >= 3) {
-    return [clamp255(col[0]), clamp255(col[1]), clamp255(col[2])];
-  }
-  return null;
-}
-
-function avg(nums: number[]) {
-  if (!nums.length) return 0;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
-
 function rgbKey(rgb: [number, number, number]) {
   return `${clamp255(rgb[0])},${clamp255(rgb[1])},${clamp255(rgb[2])}`;
-}
-
-function mostCommonRgb(list: Array<[number, number, number]>) {
-  if (!list.length) return null;
-  const map = new Map<
-    string,
-    { rgb: [number, number, number]; count: number }
-  >();
-  for (const rgb of list) {
-    const k = rgbKey(rgb);
-    const cur = map.get(k);
-    if (cur) cur.count += 1;
-    else map.set(k, { rgb, count: 1 });
-  }
-  let best: { rgb: [number, number, number]; count: number } | null = null;
-  for (const v of map.values()) {
-    if (!best || v.count > best.count) best = v;
-  }
-  return best?.rgb ?? null;
-}
-
-/**
- * Direct fetch do WLED z frontu — domyślnie OFF.
- */
-async function fetchWLEDState(ip: string): Promise<WLEDState | null> {
-  if (DISABLE_DIRECT_WLED_FETCH) return null;
-
-  try {
-    const controller = new AbortController();
-    const to = setTimeout(() => controller.abort(), 1300);
-
-    const res = await fetch(`http://${ip}/json/state`, {
-      method: "GET",
-      signal: controller.signal,
-      headers: { "Cache-Control": "no-cache" },
-    });
-    clearTimeout(to);
-
-    if (!res.ok) return null;
-    return (await res.json()) as WLEDState;
-  } catch {
-    return null;
-  }
 }
 
 function buildHubPayload(params: any, presets: Preset[], currentBrightness: number) {
@@ -216,6 +151,7 @@ export default function GroupControlScreen() {
 
   const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSentColorRef = useRef<string>("");
+  const scrollRef = useRef<ScrollView>(null);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>("power");
@@ -302,44 +238,54 @@ export default function GroupControlScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, token]);
 
-  // On focus: reclaim full group control.
-  // Fetch all hub groups, delete any that share device IPs with this group
-  // (covers: single-device groups from device screen, AND stale groups from
-  // deleted+recreated groups with a different ID but same devices).
+  const stopStream = useCallback(() => {
+    if (!hubIp) return;
+    setIsStreaming(false);
+    HubService.getGroups(hubIp)
+      .then((groups) => Promise.allSettled(groups.map((g) => HubService.deleteGroup(hubIp, g.id))))
+      .catch(() => {});
+  }, [hubIp]);
+
+  // On focus: wipe ALL hub groups → register only this group.
+  // On blur: stop stream (delete all groups).
   useFocusEffect(
     useCallback(() => {
       if (!group || !hubIp || !groupDevices.length) return;
       const currentId = String(id);
-      const ips = new Set(groupDevices.map((d) => d.ip_address));
+      const ips = groupDevices.map((d) => d.ip_address);
 
       HubService.getGroups(hubIp)
-        .then((hubGroups) => {
-          const conflicts = hubGroups.filter(
-            (g) => g.id !== currentId && g.devices.some((ip) => ips.has(ip)),
-          );
-          return Promise.allSettled(
-            conflicts.map((g) => HubService.deleteGroup(hubIp, g.id)),
-          );
-        })
+        .then((hubGroups) =>
+          Promise.allSettled(hubGroups.map((g) => HubService.deleteGroup(hubIp, g.id))),
+        )
         .catch(() => {})
         .finally(() => {
-          HubService.upsertGroup(hubIp, currentId, group.name, [...ips]).catch(
-            () => dbg("upsertGroup failed (hub may be offline)"),
-          );
+          HubService.upsertGroup(hubIp, currentId, group.name, ips)
+            .then(() => setIsStreaming(true))
+            .catch(() => dbg("upsertGroup failed (hub may be offline)"));
         });
-    }, [group, hubIp, groupDevices, id]),
+
+      return () => stopStream();
+    }, [group, hubIp, groupDevices, id, stopStream]),
   );
 
   const sendEffectParams = (sx: number, ix: number) => {
     if (!hubIp) return;
     if (effectDebounceRef.current) clearTimeout(effectDebounceRef.current);
-    effectDebounceRef.current = setTimeout(() => {
-      HubService.setGroupState(hubIp, String(id), { seg: [{ sx: Math.round(sx), ix: Math.round(ix) }] } as any).catch(() => {});
+    effectDebounceRef.current = setTimeout(async () => {
+      const groupId = String(id);
+      const payload = { seg: [{ sx: Math.round(sx), ix: Math.round(ix) }] } as any;
+      const ok = await HubService.setGroupState(hubIp, groupId, payload).catch(() => false);
+      if (!ok && group && groupDevices.length) {
+        await HubService.upsertGroup(hubIp, groupId, group.name, groupDevices.map((d) => d.ip_address));
+        HubService.setGroupState(hubIp, groupId, payload).catch(() => {});
+      }
     }, 80);
   };
 
   /**
    * HUB CONTROL — direct to hub via DDP-Hub JSON API
+   * Auto-recovery: if hub restarted (group lost from RAM), re-register and retry.
    */
   const controlGroup = async (params: any) => {
     if (!hubIp) {
@@ -354,7 +300,13 @@ export default function GroupControlScreen() {
 
     setControlling(true);
     try {
-      await HubService.setGroupState(hubIp, String(id), payload as any);
+      const groupId = String(id);
+      const ok = await HubService.setGroupState(hubIp, groupId, payload as any);
+      if (!ok && group && groupDevices.length) {
+        dbg("CONTROL 404 — re-registering group and retrying");
+        await HubService.upsertGroup(hubIp, groupId, group.name, groupDevices.map((d) => d.ip_address));
+        await HubService.setGroupState(hubIp, groupId, payload as any);
+      }
     } catch {
       dbg("CONTROL hub error (ignored)");
     } finally {
@@ -542,6 +494,7 @@ export default function GroupControlScreen() {
     }
 
     setSelectedPreset(preset.id);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
 
     // Use the preset's own default color — not the user's currently selected color
     const defaultRgb = getPresetDefaultRgb(preset);
@@ -567,72 +520,11 @@ export default function GroupControlScreen() {
     },
   });
 
-  const refreshUiFromCandidates = async () => {
-    if (DISABLE_DIRECT_WLED_FETCH) {
-      dbg("refreshUiFromCandidates skipped (direct fetch disabled)");
-      return;
-    }
-
-    if (!groupDevices.length) return;
-    const online = groupDevices.filter((d) => d.is_online);
-    if (!online.length) return;
-
-    const states = await Promise.all(
-      online.map(async (d) => await fetchWLEDState(d.ip_address)),
-    );
-    const ok = states.filter(Boolean) as WLEDState[];
-    if (!ok.length) return;
-
-    const anyOn = ok.map((s) => !!s.on).some(Boolean);
-    setIsOn(anyOn);
-
-    const briOn = ok
-      .filter((s) => s.on)
-      .map((s) => (typeof s.bri === "number" ? s.bri : 0))
-      .filter((n) => n > 0);
-
-    const briAll = ok
-      .map((s) => (typeof s.bri === "number" ? s.bri : 0))
-      .filter((n) => n >= 0);
-
-    const bri = anyOn
-      ? Math.round(avg(briOn.length ? briOn : briAll))
-      : Math.round(avg(briAll));
-    if (!Number.isNaN(bri)) setBrightness(Math.max(0, Math.min(255, bri)));
-
-    const rgbsOn = ok
-      .filter((s) => s.on)
-      .map((s) => parseRgbFromState(s))
-      .filter(Boolean) as Array<[number, number, number]>;
-
-    const rgbsAll = ok
-      .map((s) => parseRgbFromState(s))
-      .filter(Boolean) as Array<[number, number, number]>;
-
-    const bestRgb = mostCommonRgb(rgbsOn.length ? rgbsOn : rgbsAll);
-    if (bestRgb) {
-      setBaseRgb(bestRgb);
-      setBaseHex(rgbToHex(bestRgb));
-    }
-
-    setTemperature(0);
-  };
-
-  /**
-   * Night mode — 1 request
-   * ✅ nie kasujemy presetu; noc to tylko override kolor/bri
-   */
-
-  /**
-   * Manual sync button — w DDP HUB też raczej informacyjnie
-   */
-  const [syncingUi, setSyncingUi] = useState(false);
+  const [syncingUi] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(80);
 
-  const handleSyncDevices = async () => {
-    Alert.alert("Sync", "Manual sync is disabled in DDP HUB mode.");
-    setSyncingUi(false);
-  };
+  const handleSyncDevices = () => {};
 
   if (loading) {
     return (
@@ -675,6 +567,7 @@ export default function GroupControlScreen() {
         </View>
 
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[
             styles.content,
             {
@@ -684,6 +577,20 @@ export default function GroupControlScreen() {
             },
           ]}
         >
+          {selectedPreset !== null && (
+            <EffectSliders
+              presetName={selectedPresetObj?.name}
+              speed={effectSpeed}
+              intensity={effectIntensity}
+              controlling={uiLocked}
+              isOnline={!!hubIp}
+              onSpeedChange={(v) => setEffectSpeed(v)}
+              onSpeedComplete={(v) => { setEffectSpeed(v); sendEffectParams(v, effectIntensity); }}
+              onIntensityChange={(v) => setEffectIntensity(v)}
+              onIntensityComplete={(v) => { setEffectIntensity(v); sendEffectParams(effectSpeed, v); }}
+            />
+          )}
+
           <ColorSection
             title={t("color") ?? "Color"}
             baseHex={baseHex}
@@ -714,19 +621,6 @@ export default function GroupControlScreen() {
             onPickSlot={onPickPaletteSlot}
           />
 
-          {selectedPreset !== null && (
-            <EffectSliders
-              speed={effectSpeed}
-              intensity={effectIntensity}
-              controlling={uiLocked}
-              isOnline={!!hubIp}
-              onSpeedChange={(v) => setEffectSpeed(v)}
-              onSpeedComplete={(v) => { setEffectSpeed(v); sendEffectParams(v, effectIntensity); }}
-              onIntensityChange={(v) => setEffectIntensity(v)}
-              onIntensityComplete={(v) => { setEffectIntensity(v); sendEffectParams(effectSpeed, v); }}
-            />
-          )}
-
           <PresetsSection
             title={t("presets") ?? "Presets"}
             presets={presets}
@@ -745,9 +639,11 @@ export default function GroupControlScreen() {
           isOn={isOn}
           hasSleep={!!sleep.sleepTargetTs}
           syncing={syncingUi}
+          isStreaming={isStreaming}
           onPower={() => handleTogglePower(!isOn)}
           onSleep={() => openModal("sleep")}
           onSync={handleSyncDevices}
+          onStop={stopStream}
           t={t as (k: string) => string}
         />
 
@@ -793,6 +689,8 @@ export default function GroupControlScreen() {
             }}
           />
         )}
+
+        <ControlTutorialModal userId={user?.id} />
       </View>
     </SafeAreaView>
   );

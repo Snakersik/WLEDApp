@@ -745,8 +745,8 @@ export default function DevicesScreen() {
         <View style={styles.deviceHeader}>
           <View style={styles.deviceInfo}>
             <Ionicons
-              name="bulb"
-              size={32}
+              name="flash"
+              size={28}
               color={item.is_online ? "#10b981" : "#6b7280"}
             />
 
@@ -864,7 +864,7 @@ export default function DevicesScreen() {
 
       {devices.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="bulb-outline" size={64} color="#475569" />
+          <Ionicons name="flash-outline" size={64} color="#475569" />
           <Text style={styles.emptyText}>{t("noDevices")}</Text>
           <Text style={styles.emptySubtext}>{t("noDevicesSubtext")}</Text>
         </View>
@@ -887,7 +887,7 @@ export default function DevicesScreen() {
       {/* OPEN CHOICE MODAL (device vs group) */}
       <Modal
         visible={openChoiceVisible}
-        animationType="fade"
+        animationType=”fade”
         transparent
         onRequestClose={() => setOpenChoiceVisible(false)}
       >
@@ -896,64 +896,64 @@ export default function DevicesScreen() {
           onPress={() => setOpenChoiceVisible(false)}
         >
           <Pressable style={styles.choiceCard} onPress={() => {}}>
-            <View style={styles.choiceHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.choiceTitle}>
-                  {choiceDevice?.name ?? "Device"}
-                </Text>
-                <Text style={styles.choiceSubtitle}>
-                  This device is in {choiceGroups.length} group(s). To avoid
-                  conflicts, control via group.
-                </Text>
+
+            {/* Device name + location */}
+            <View style={{ alignItems: “center”, marginBottom: 20 }}>
+              <View style={styles.choiceIconWrap}>
+                <Ionicons name=”flash” size={28} color=”#6366f1” />
               </View>
-              <TouchableOpacity onPress={() => setOpenChoiceVisible(false)}>
-                <Ionicons name="close" size={22} color="#94a3b8" />
-              </TouchableOpacity>
+              <Text style={styles.choiceTitle}>
+                {choiceDevice?.name ?? “Urządzenie”}
+              </Text>
+              {choiceDevice?.location ? (
+                <Text style={styles.choiceSubtitle}>{choiceDevice.location}</Text>
+              ) : null}
             </View>
 
-            <View style={{ gap: 10, marginTop: 10 }}>
-              {choiceGroups.slice(0, 4).map((g) => (
-                <TouchableOpacity
-                  key={g.id}
-                  style={styles.choicePrimaryBtn}
-                  onPress={() => {
-                    setOpenChoiceVisible(false);
-                    router.push(`/(group)/${g.id}`);
-                  }}
-                >
-                  <Ionicons name="layers" size={18} color="#fff" />
-                  <Text style={styles.choicePrimaryText}>
-                    Open group: {g.name}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
-                </TouchableOpacity>
-              ))}
+            <View style={{ gap: 10 }}>
+              {/* Primary: group(s) */}
+              {choiceGroups.length > 0 ? (
+                choiceGroups.slice(0, 3).map((g) => (
+                  <TouchableOpacity
+                    key={g.id}
+                    style={styles.choicePrimaryBtn}
+                    onPress={() => {
+                      setOpenChoiceVisible(false);
+                      router.push(`/(group)/${g.id}`);
+                    }}
+                  >
+                    <Ionicons name=”layers” size={20} color=”#fff” />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.choicePrimaryText}>Steruj grupą</Text>
+                      <Text style={styles.choicePrimaryDesc}>{g.name}</Text>
+                    </View>
+                    <Ionicons name=”chevron-forward” size={18} color=”#cbd5e1” />
+                  </TouchableOpacity>
+                ))
+              ) : null}
 
+              {/* Secondary: single device */}
               <TouchableOpacity
-                style={styles.choiceSecondaryBtn}
+                style={choiceGroups.length > 0 ? styles.choiceSecondaryBtn : styles.choicePrimaryBtn}
                 onPress={() => {
                   const devId = choiceDevice?.id;
                   setOpenChoiceVisible(false);
                   if (devId) router.push(`/(device)/${devId}`);
                 }}
               >
-                <Ionicons name="bulb-outline" size={18} color="#e2e8f0" />
+                <Ionicons name=”flash-outline” size={20} color={choiceGroups.length > 0 ? “#94a3b8” : “#fff”} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.choiceSecondaryTitle}>
-                    Control device (local)
+                  <Text style={choiceGroups.length > 0 ? styles.choiceSecondaryTitle : styles.choicePrimaryText}>
+                    Steruj pojedynczym urządzeniem
                   </Text>
-                  <Text style={styles.choiceSecondaryDesc}>
-                    May conflict with group preset / stream.
-                  </Text>
+                  {choiceGroups.length > 0 && (
+                    <Text style={styles.choiceSecondaryDesc}>Tylko to urządzenie</Text>
+                  )}
                 </View>
-                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                <Ionicons name=”chevron-forward” size={18} color={choiceGroups.length > 0 ? “#475569” : “#cbd5e1”} />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.choiceHint}>
-              Tip: if you see “two presets at once”, it’s usually because local
-              + group are both sending frames.
-            </Text>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1111,7 +1111,7 @@ export default function DevicesScreen() {
                       onPress={() => addDiscoveredDevice(device)}
                       disabled={adding}
                     >
-                      <Ionicons name="bulb" size={32} color="#10b981" />
+                      <Ionicons name="flash" size={28} color="#10b981" />
                       <View style={styles.discoveredDeviceInfo}>
                         <Text style={styles.discoveredDeviceName}>
                           {device.name}

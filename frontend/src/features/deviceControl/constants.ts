@@ -98,7 +98,6 @@ export const PRESET_COLOR_MAPPING: Record<
   halloween_eyes:     PRESET_COLORS[0],  // red
   fire_flicker:       PRESET_COLORS[6],  // orange
   gradient:           PRESET_COLORS[4],  // purple (color_locked)
-  meteor_smooth:      PRESET_COLORS[5],  // cyan
   colorwaves:         PRESET_COLORS[4],  // purple (color_locked)
   bpm:                PRESET_COLORS[4],  // purple (color_locked)
   fill_noise:         PRESET_COLORS[2],  // blue (color_locked)

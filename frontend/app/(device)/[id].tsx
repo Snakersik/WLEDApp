@@ -14,6 +14,7 @@ import { WLEDLivePreview } from "../../src/components/WLEDLivePreview";
 import { UShapeLiveBorder } from "../../src/components/UShapeLiveBorder";
 
 import { EffectSliders } from "../../src/features/deviceControl/components/EffectSliders";
+import { ControlTutorialModal } from "../../src/features/deviceControl/components/ControlTutorialModal";
 
 import {
   DeviceHeader,
@@ -73,6 +74,7 @@ export default function DeviceControlScreen() {
   const { hubIp } = useHub();
 
   const [controlling, setControlling] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(72);
   const [isOn, setIsOn] = useState(true);
 
@@ -86,6 +88,7 @@ export default function DeviceControlScreen() {
 
   const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const effectDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollRef = useRef<any>(null);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>("power");
@@ -135,41 +138,49 @@ export default function DeviceControlScreen() {
     return boostVibrance(tinted, 0.35);
   };
 
-  // On focus: claim exclusive hub control for this device.
-  // Remove it from any other hub groups (e.g. a parent group still streaming DDP)
-  // so there's only one active DDP loop per device at a time.
+  const stopStream = useCallback(() => {
+    if (!hubIp) return;
+    setIsStreaming(false);
+    HubService.getGroups(hubIp)
+      .then((groups) => Promise.allSettled(groups.map((g) => HubService.deleteGroup(hubIp, g.id))))
+      .catch(() => {});
+  }, [hubIp]);
+
+  // On focus: wipe ALL hub groups → register only this device group.
+  // On blur: stop stream (delete all groups).
   useFocusEffect(
     useCallback(() => {
       if (!device || !hubIp) return;
       const deviceGroupId = String(id);
 
       HubService.getGroups(hubIp)
-        .then((groups) => {
-          const conflicts = groups.filter(
-            (g) => g.id !== deviceGroupId && g.devices.includes(device.ip_address),
-          );
-          return Promise.allSettled(
-            conflicts.map((g) =>
-              HubService.updateGroup(hubIp, g.id, {
-                devices: g.devices.filter((ip) => ip !== device.ip_address),
-              }),
-            ),
-          );
-        })
+        .then((groups) =>
+          Promise.allSettled(groups.map((g) => HubService.deleteGroup(hubIp, g.id))),
+        )
         .catch(() => {})
         .finally(() => {
-          HubService.upsertGroup(hubIp, deviceGroupId, device.name, [device.ip_address]).catch(() => {});
+          HubService.upsertGroup(hubIp, deviceGroupId, device.name, [device.ip_address])
+            .then(() => setIsStreaming(true))
+            .catch(() => {});
         });
-    }, [device, hubIp, id]),
+
+      return () => stopStream();
+    }, [device, hubIp, id, stopStream]),
   );
 
   const controlViaHub = useCallback(
     async (payload: BackendControlPayload) => {
       if (!hubIp) throw new Error("No hub IP");
       const hubPayload = buildDeviceHubPayload(payload, presets);
-      await HubService.setGroupState(hubIp, String(id), hubPayload as any);
+      const groupId = String(id);
+      const ok = await HubService.setGroupState(hubIp, groupId, hubPayload as any);
+      if (!ok && device) {
+        // Hub may have restarted — re-register group and retry once
+        await HubService.upsertGroup(hubIp, groupId, device.name, [device.ip_address]);
+        await HubService.setGroupState(hubIp, groupId, hubPayload as any);
+      }
     },
-    [hubIp, id, presets],
+    [hubIp, id, presets, device],
   );
 
   const controlDevice = async (action: () => Promise<any>) => {
@@ -370,6 +381,7 @@ export default function DeviceControlScreen() {
     }
 
     setSelectedPreset(preset.id);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
 
     // Use the preset's own default color — not the user's currently selected color
     const defaultRgb = getPresetDefaultRgb(preset);
@@ -412,8 +424,14 @@ export default function DeviceControlScreen() {
   const sendEffectParams = (sx: number, ix: number) => {
     if (!hubIp) return;
     if (effectDebounceRef.current) clearTimeout(effectDebounceRef.current);
-    effectDebounceRef.current = setTimeout(() => {
-      HubService.setGroupState(hubIp, String(id), { seg: [{ sx: Math.round(sx), ix: Math.round(ix) }] } as any).catch(() => {});
+    effectDebounceRef.current = setTimeout(async () => {
+      const groupId = String(id);
+      const payload = { seg: [{ sx: Math.round(sx), ix: Math.round(ix) }] } as any;
+      const ok = await HubService.setGroupState(hubIp, groupId, payload).catch(() => false);
+      if (!ok && device) {
+        await HubService.upsertGroup(hubIp, groupId, device.name, [device.ip_address]);
+        HubService.setGroupState(hubIp, groupId, payload).catch(() => {});
+      }
     }, 80);
   };
 
@@ -444,6 +462,7 @@ export default function DeviceControlScreen() {
         />
 
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[
             styles.content,
             {
@@ -466,6 +485,20 @@ export default function DeviceControlScreen() {
                 pollMs={500}
               />
             </View>
+          )}
+
+          {selectedPreset !== null && (
+            <EffectSliders
+              presetName={selectedPresetObj?.name}
+              speed={effectSpeed}
+              intensity={effectIntensity}
+              controlling={controlling}
+              isOnline={!!hubIp}
+              onSpeedChange={(v) => { setEffectSpeed(v); sendEffectParams(v, effectIntensity); }}
+              onSpeedComplete={(v) => { setEffectSpeed(v); sendEffectParams(v, effectIntensity); }}
+              onIntensityChange={(v) => { setEffectIntensity(v); sendEffectParams(effectSpeed, v); }}
+              onIntensityComplete={(v) => { setEffectIntensity(v); sendEffectParams(effectSpeed, v); }}
+            />
           )}
 
           <ColorSection
@@ -498,19 +531,6 @@ export default function DeviceControlScreen() {
             onPickSlot={onPickPaletteSlot}
           />
 
-          {selectedPreset !== null && (
-            <EffectSliders
-              speed={effectSpeed}
-              intensity={effectIntensity}
-              controlling={controlling}
-              isOnline={!!hubIp}
-              onSpeedChange={(v) => { setEffectSpeed(v); sendEffectParams(v, effectIntensity); }}
-              onSpeedComplete={(v) => { setEffectSpeed(v); sendEffectParams(v, effectIntensity); }}
-              onIntensityChange={(v) => { setEffectIntensity(v); sendEffectParams(effectSpeed, v); }}
-              onIntensityComplete={(v) => { setEffectIntensity(v); sendEffectParams(effectSpeed, v); }}
-            />
-          )}
-
           <PresetsSection
             title={t("presets") ?? "Presets"}
             presets={presets}
@@ -534,9 +554,11 @@ export default function DeviceControlScreen() {
           isOn={isOn}
           hasSleep={!!sleep.sleepTargetTs}
           syncing={syncing}
+          isStreaming={isStreaming}
           onPower={() => handleTogglePower(!isOn)}
           onSleep={() => openModal("sleep")}
           onSync={handleSync}
+          onStop={stopStream}
           t={t as (k: string) => string}
         />
 
@@ -582,6 +604,8 @@ export default function DeviceControlScreen() {
             }}
           />
         )}
+
+        <ControlTutorialModal userId={user?.id} />
       </View>
     </SafeAreaView>
   );

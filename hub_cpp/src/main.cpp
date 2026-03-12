@@ -18,6 +18,10 @@ std::vector<String> g_devices;
 portMUX_TYPE        g_mux = portMUX_INITIALIZER_UNLOCKED;
 HubMeta             g_hubMeta;
 
+// ── Identify blink ─────────────────────────────────────────────
+String   g_identifyIp    = "";
+uint32_t g_identifyUntil = 0;
+
 // ── DDP packet ─────────────────────────────────────────────────
 static WiFiUDP     _udp;
 static uint8_t     _ddpPkt[10 + NUM_LEDS * 3];
@@ -261,6 +265,7 @@ _udp.begin(4049); // local port (any unused)
 static uint32_t _lastFrame          = 0;
 static uint32_t _lastScheduleCheck  = 0;
 static const uint32_t _frameMs      = 1000 / FPS;
+uint32_t        g_frameCount        = 0;
 
 void loop() {
   uint32_t now = millis();
@@ -273,6 +278,7 @@ void loop() {
 
   if (now - _lastFrame < _frameMs) return;
   _lastFrame = now;
+  g_frameCount++;
 
   // 1. Render effects (no heap alloc — safe inside critical section)
   taskENTER_CRITICAL(&g_mux);
@@ -296,9 +302,20 @@ void loop() {
   }
 
   // Send DDP outside lock
+  static CRGB _blinkBuf[NUM_LEDS];
   for (auto& s : snaps) {
     for (auto& ip : s.devs) {
-      ddpSend(ip.c_str(), s.leds);
+      if (!g_identifyIp.isEmpty() && ip == g_identifyIp && millis() < g_identifyUntil) {
+        // Identify blink: alternate red / black at ~3Hz
+        bool redOn = (millis() / 160) % 2 == 0;
+        fill_solid(_blinkBuf, NUM_LEDS, redOn ? CRGB::Red : CRGB::Black);
+        ddpSend(ip.c_str(), _blinkBuf);
+      } else {
+        if (!g_identifyIp.isEmpty() && ip == g_identifyIp && millis() >= g_identifyUntil) {
+          g_identifyIp = ""; // done — clear flag
+        }
+        ddpSend(ip.c_str(), s.leds);
+      }
       delay(2); // prevent lwIP buffer overflow
       yield();  // let async_tcp task run
     }

@@ -368,6 +368,30 @@ export default function HubScreen() {
               <Text style={s.setupBtnText}>{t("configureFixture")}</Text>
             </TouchableOpacity>
 
+            {/* ── Stop All Streams ── */}
+            {hubOnline && (
+              <TouchableOpacity
+                style={s.stopAllBtn}
+                onPress={async () => {
+                  const ip = hubIp || hub?.ip_address;
+                  if (!ip) return;
+                  try {
+                    const res = await fetch(`http://${ip}/groups`);
+                    if (!res.ok) return;
+                    const groups: { id: string }[] = await res.json();
+                    await Promise.allSettled(
+                      groups.map((g) =>
+                        fetch(`http://${ip}/groups/${g.id}`, { method: "DELETE" }),
+                      ),
+                    );
+                  } catch {}
+                }}
+              >
+                <Ionicons name="stop-circle-outline" size={18} color="#ef4444" />
+                <Text style={s.stopAllBtnText}>Stop All Streams</Text>
+              </TouchableOpacity>
+            )}
+
             {/* ── Restart hub ── */}
             {restarting ? (
               <View style={s.restartingRow}>
@@ -525,6 +549,8 @@ const s = StyleSheet.create({
 
   setupBtn:      { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: C.borderMd, padding: 16 },
   setupBtnText:  { fontSize: 14, color: C.primary2, fontWeight: "600", flex: 1 },
+  stopAllBtn:     { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: "#ef444444", padding: 16 },
+  stopAllBtnText: { fontSize: 14, color: "#ef4444", fontWeight: "600" as const, flex: 1 },
   restartBtn:     { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: C.red + "44", padding: 16 },
   restartBtnText: { fontSize: 14, color: C.red, fontWeight: "600", flex: 1 },
   restartingRow:  { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: C.borderMd, padding: 16 },

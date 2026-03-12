@@ -731,6 +731,38 @@ void setupServer() {
     }
   ));
 
+  // POST /api/identify — blink a specific device red for 4s so user can identify it
+  _srv.addHandler(new AsyncCallbackJsonWebHandler("/api/identify",
+    [](AsyncWebServerRequest* req, JsonVariant& jv) {
+      if (!jv["ip"].is<const char*>()) { sendErr(req, "missing ip"); return; }
+      extern String   g_identifyIp;
+      extern uint32_t g_identifyUntil;
+      g_identifyIp    = jv["ip"].as<String>();
+      g_identifyUntil = millis() + 4000;
+      sendOk(req);
+    }
+  ));
+
+  // GET /debug — real-time system diagnostics (heap, WiFi, uptime)
+  _srv.on("/debug", HTTP_GET, [](AsyncWebServerRequest* req) {
+    JsonDocument d;
+    d["free_heap"]     = (uint32_t)ESP.getFreeHeap();
+    d["min_free_heap"] = (uint32_t)ESP.getMinFreeHeap();
+    d["rssi"]          = (int8_t)WiFi.RSSI();
+    d["uptime_s"]      = (uint32_t)(millis() / 1000);
+    d["cpu_mhz"]       = (uint32_t)ESP.getCpuFreqMHz();
+    taskENTER_CRITICAL(&g_mux);
+    d["groups"]        = (uint32_t)g_groups.size();
+    uint32_t devTotal  = 0;
+    for (auto& g : g_groups) devTotal += g.devices.size();
+    taskEXIT_CRITICAL(&g_mux);
+    d["devices_total"] = devTotal;
+    extern uint32_t g_frameCount;
+    d["frames_sent"]   = g_frameCount;
+    d["expected_fps"]  = (uint32_t)FPS;
+    sendJson(req, d);
+  });
+
   _srv.begin();
   Serial.println("HTTP server started on :80");
 }

@@ -48,7 +48,7 @@ export default function OnboardingScreen() {
   const [hasGroups, setHasGroups] = useState(false);
 
   // Group form
-  const [groupName, setGroupName] = useState("Moje kinkiety");
+  const [groupName, setGroupName] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [creatingGroup, setCreatingGroup] = useState(false);
 
@@ -120,20 +120,18 @@ export default function OnboardingScreen() {
 
   // ── Group creation ────────────────────────────────────────────
   const createGroup = useCallback(async () => {
-    if (!groupName.trim()) {
-      Alert.alert("Uzupełnij nazwę", "Podaj nazwę grupy.");
-      return;
-    }
     const ids = Array.from(selectedIds);
     if (ids.length === 0) {
       Alert.alert("Wybierz urządzenia", "Zaznacz co najmniej jedno urządzenie.");
       return;
     }
+    const selectedDevs = devices.filter(d => selectedIds.has(d.id));
+    const finalName = groupName.trim() || suggestGroupName(selectedDevs) || "Moje kinkiety";
     setCreatingGroup(true);
     try {
       await axios.post(
         `${API_URL}/groups`,
-        { name: groupName.trim(), device_ids: ids },
+        { name: finalName, device_ids: ids },
         { headers: { Authorization: `Bearer ${token}` }, timeout: 8_000 },
       );
       setHasGroups(true);
@@ -249,7 +247,11 @@ export default function OnboardingScreen() {
                 <Ionicons name="layers-outline" size={56} color="#6366f1" style={s.icon} />
                 <Text style={s.heading}>Utwórz pierwszą grupę</Text>
                 <Text style={s.body}>
-                  Grupa pozwala sterować wieloma kinkietami jednocześnie.
+                  Grupa to zestaw kinkietów, którymi sterujesz razem — jeden suwak jasności, jeden efekt dla wszystkich.{"\n\n"}
+                  Nadaj jej nazwę odpowiadającą miejscu montażu, np.{" "}
+                  <Text style={{ color: "#a5b4fc" }}>
+                    {suggestGroupName(devices.filter(d => selectedIds.has(d.id))) || "Kinkiety garaż"}
+                  </Text>.
                 </Text>
 
                 <Text style={s.label}>Nazwa grupy</Text>
@@ -257,7 +259,7 @@ export default function OnboardingScreen() {
                   style={s.input}
                   value={groupName}
                   onChangeText={setGroupName}
-                  placeholder="np. Salon"
+                  placeholder={suggestGroupName(devices.filter(d => selectedIds.has(d.id))) || "np. Kinkiety garaż"}
                   placeholderTextColor="#475569"
                 />
 
@@ -341,6 +343,27 @@ function SummaryRow({ icon, label, value, ok }: { icon: any; label: string; valu
       <Ionicons name={ok ? "checkmark-circle" : "ellipse-outline"} size={16} color={ok ? "#22c55e" : "#475569"} />
     </View>
   );
+}
+
+function suggestGroupName(devs: Device[]): string {
+  const locs = devs.map(d => d.location?.trim() ?? "").filter(Boolean);
+  if (locs.length === 0) return "";
+
+  // All devices have the same location → "Kinkiety [location]"
+  if (new Set(locs.map(l => l.toLowerCase())).size === 1) {
+    return `Kinkiety ${locs[0].toLowerCase()}`;
+  }
+
+  // Find a shared keyword among the locations
+  const keywords = ["garaż", "drzwi", "taras", "ogród", "wejście", "balkon"];
+  for (const kw of keywords) {
+    if (locs.filter(l => l.toLowerCase().includes(kw)).length >= 2) {
+      return `Kinkiety ${kw}`;
+    }
+  }
+
+  // Fallback: use first device's location
+  return `Kinkiety ${locs[0].toLowerCase()}`;
 }
 
 // ─── Styles ───────────────────────────────────────────────────

@@ -14,15 +14,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { C } from "../../../ui/theme";
 
 interface Props {
-  isOnline:    boolean;
-  controlling: boolean;
-  isOn:        boolean;
-  hasSleep:    boolean;
-  syncing:     boolean;
-  onPower:     () => void;
-  onSleep:     () => void;
-  onSync:      () => void;
-  t?:          (k: string) => string;
+  isOnline:     boolean;
+  controlling:  boolean;
+  isOn:         boolean;
+  hasSleep:     boolean;
+  syncing:      boolean;
+  isStreaming?: boolean;
+  onPower:      () => void;
+  onSleep:      () => void;
+  onSync:       () => void;
+  onStop?:      () => void;
+  t?:           (k: string) => string;
 }
 
 function BarBtn({
@@ -80,8 +82,8 @@ function BarBtn({
 }
 
 export function BottomBar({
-  isOnline, controlling, isOn, hasSleep, syncing,
-  onPower, onSleep, onSync, t,
+  isOnline, controlling, isOn, hasSleep, syncing, isStreaming,
+  onPower, onSleep, onSync, onStop, t,
 }: Props) {
   const disCtrl = controlling || !isOnline;
   const disSync = syncing     || !isOnline;
@@ -131,16 +133,28 @@ export function BottomBar({
         </Text>
       </TouchableOpacity>
 
-      <BarBtn
-        icon="sync-outline"
-        iconFilled="sync"
-        label={t?.("sync") ?? "Sync"}
-        active={false}
-        activeColor={C.green}
-        onPress={onSync}
-        disabled={disSync}
-        loading={syncing}
-      />
+      {onStop ? (
+        <BarBtn
+          icon="stop-circle-outline"
+          iconFilled="stop-circle"
+          label={isStreaming ? "Stop" : "Stopped"}
+          active={isStreaming ?? false}
+          activeColor="#ef4444"
+          onPress={onStop}
+          disabled={controlling}
+        />
+      ) : (
+        <BarBtn
+          icon="sync-outline"
+          iconFilled="sync"
+          label={t?.("sync") ?? "Sync"}
+          active={false}
+          activeColor={C.green}
+          onPress={onSync}
+          disabled={disSync}
+          loading={syncing}
+        />
+      )}
     </View>
   );
 

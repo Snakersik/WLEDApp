@@ -482,23 +482,7 @@ void e_meteor(Group& g, uint32_t t) {
   }
 }
 
-// ── fx=77 Meteor Smooth ────────────────────────────────────────
-void e_meteor_smooth(Group& g, uint32_t t) {
-  float fpos = fmodf(t * g.state.sx / 3000.0f, NUM_LEDS);
-  int   tr   = max(3, g.state.ix/6);
-  CRGB  c    = col0(g.state); float br=g.state.bri/255.0f;
-  fadeAll(g.leds, 240);
-  for(int j=0;j<tr;j++) {
-    float fjpos = fpos - j;
-    if(fjpos < 0) fjpos += NUM_LEDS;
-    int   ipos  = (int)fjpos;
-    float frac  = fjpos - ipos;
-    float v1    = (1.0f-(float)j/tr) * br * (1.0f-frac);
-    float v2    = (1.0f-(float)j/tr) * br * frac;
-    g.leds[ipos]                  = CRGB((uint8_t)(c.r*v1),(uint8_t)(c.g*v1),(uint8_t)(c.b*v1));
-    g.leds[(ipos+1)%NUM_LEDS]     = CRGB((uint8_t)(c.r*v2),(uint8_t)(c.g*v2),(uint8_t)(c.b*v2));
-  }
-}
+
 
 // ── fx=79 Ripple ───────────────────────────────────────────────
 void e_ripple(Group& g, uint32_t t) {
@@ -794,7 +778,6 @@ void renderGroup(Group& g, uint32_t t) {
     case  67: e_fire_flicker(g);       break;
     case  68: e_gradient(g,t);         break;
     case  76: e_meteor(g,t);           break;
-    case  77: e_meteor_smooth(g,t);    break;
     case  79: e_ripple(g,t);           break;
     case  88: e_colorwaves(g,t);       break;
     case  90: e_bpm(g,t);              break;

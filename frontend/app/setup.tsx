@@ -60,7 +60,10 @@ type Step =
   | "device_names"
   | "done";
 
-const LOCATIONS = ["Salon", "Sypialnia", "Kuchnia", "Łazienka", "Korytarz", "Gabinet", "Inne"];
+const LOCATIONS = [
+  "Prawe drzwi", "Lewe drzwi", "Drzwi garaż prawy", "Drzwi garaż lewy",
+  "Wejście główne", "Taras", "Balkon", "Ogród", "Inne",
+];
 
 // ─────────────────────────────────────────────────────────────
 export default function SetupScreen() {
@@ -87,7 +90,10 @@ export default function SetupScreen() {
   // Results
   const [configuredWled, setConfiguredWled] = useState<string[]>([]);
   const [foundDevices, setFoundDevices]     = useState<Array<{ ip: string; name: string }>>([]);
-  const [deviceForms, setDeviceForms]       = useState<Array<{ ip: string; name: string; location: string }>>([]);
+  const [deviceForms, setDeviceForms]       = useState<Array<{ ip: string; name: string; location: string; customLocation: string }>>([]);
+
+  // Identify
+  const [identifyingIp, setIdentifyingIp] = useState<string | null>(null);
 
   // Debug log
   const [debugMsg, setDebugMsg] = useState("");
@@ -445,7 +451,7 @@ export default function SetupScreen() {
     }
 
     // Let user name devices and pick locations before registering
-    setDeviceForms(foundDevices.map(d => ({ ip: d.ip, name: d.name || 'WLED Device', location: '' })));
+    setDeviceForms(foundDevices.map(d => ({ ip: d.ip, name: '', location: '', customLocation: '' })));
     go("device_names", "");
   }, [go]);
 
@@ -457,7 +463,7 @@ export default function SetupScreen() {
       try {
         await axios.post(
           `${API_URL}/devices`,
-          { name: d.name || 'WLED Device', ip_address: d.ip, led_count: 30, location: d.location || undefined },
+          { name: d.name || deviceDefaultName(d.location, d.customLocation) || 'WLED Device', ip_address: d.ip, led_count: 30, location: (d.location === "Inne" ? d.customLocation : d.location) || undefined },
           { headers: { Authorization: `Bearer ${token}` }, timeout: 8_000 },
         );
         addDebug(`[REG] OK — ${d.name}`);
@@ -467,6 +473,20 @@ export default function SetupScreen() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceForms, token, go, addDebug]);
+
+  // ── Identify device (blink red for 4s via hub DDP) ───────────
+  const identifyDevice = useCallback(async (ip: string) => {
+    if (!registeredHubIp || identifyingIp) return;
+    setIdentifyingIp(ip);
+    try {
+      await fetch(`http://${registeredHubIp}/api/identify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip }),
+      });
+    } catch {}
+    setTimeout(() => setIdentifyingIp(null), 4200);
+  }, [registeredHubIp, identifyingIp]);
 
   // ─── Render ───────────────────────────────────────────────────
   return (
@@ -532,7 +552,13 @@ export default function SetupScreen() {
                 </View>
               ) : wifiNetworks.length > 0 ? (
                 <>
-                  <Text style={s.hint}>Wybierz sieć lub wpisz ręcznie poniżej:</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text style={s.hint}>Wybierz sieć lub wpisz ręcznie poniżej:</Text>
+                    <TouchableOpacity onPress={scanWifiNetworks} style={s.refreshNetBtn}>
+                      <Ionicons name="refresh-outline" size={14} color="#6366f1" />
+                      <Text style={s.scanNetBtnText}>Odśwież</Text>
+                    </TouchableOpacity>
+                  </View>
                   <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
                     {wifiNetworks.map((net) => (
                       <TouchableOpacity
@@ -697,7 +723,22 @@ export default function SetupScreen() {
 
               {deviceForms.map((form, idx) => (
                 <View key={form.ip} style={s.deviceFormCard}>
-                  <Text style={s.deviceFormIp}>📡 {form.ip}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text style={s.deviceFormIp}>📡 {form.ip}</Text>
+                    <TouchableOpacity
+                      style={[s.identifyBtn, identifyingIp === form.ip && s.identifyBtnActive]}
+                      onPress={() => identifyDevice(form.ip)}
+                      disabled={!!identifyingIp}
+                    >
+                      {identifyingIp === form.ip
+                        ? <ActivityIndicator size="small" color="#ef4444" />
+                        : <Ionicons name="flashlight-outline" size={14} color="#ef4444" />
+                      }
+                      <Text style={s.identifyBtnText}>
+                        {identifyingIp === form.ip ? "Miga…" : "Wykryj"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                   <Text style={s.label}>Nazwa</Text>
                   <TextInput
                     style={s.input}
@@ -705,10 +746,10 @@ export default function SetupScreen() {
                     onChangeText={(v) =>
                       setDeviceForms(prev => prev.map((d, i) => i === idx ? { ...d, name: v } : d))
                     }
-                    placeholder="np. Kinkiet salon"
+                    placeholder={deviceDefaultName(form.location, form.customLocation) || "np. Kinkiet wejściowy"}
                     placeholderTextColor="#475569"
                   />
-                  <Text style={s.label}>Pomieszczenie</Text>
+                  <Text style={s.label}>Lokalizacja</Text>
                   <View style={s.chipRow}>
                     {LOCATIONS.map(loc => (
                       <TouchableOpacity
@@ -724,6 +765,18 @@ export default function SetupScreen() {
                       </TouchableOpacity>
                     ))}
                   </View>
+                  {form.location === "Inne" && (
+                    <TextInput
+                      style={[s.input, { marginTop: 6 }]}
+                      value={form.customLocation}
+                      onChangeText={(v) =>
+                        setDeviceForms(prev => prev.map((d, i) => i === idx ? { ...d, customLocation: v } : d))
+                      }
+                      placeholder="Wpisz lokalizację…"
+                      placeholderTextColor="#475569"
+                      autoFocus
+                    />
+                  )}
                 </View>
               ))}
 
@@ -813,6 +866,14 @@ function delay(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
 }
 
+function deviceDefaultName(location: string, customLocation: string): string {
+  const loc = location === "Inne" ? customLocation : location;
+  if (!loc) return "";
+  // Capitalize first letter, rest lowercase
+  const lower = loc.charAt(0).toUpperCase() + loc.slice(1).toLowerCase();
+  return `Kinkiet ${lower}`;
+}
+
 // ─── Styles ───────────────────────────────────────────────────
 const s = StyleSheet.create({
   safe:    { flex: 1, backgroundColor: "#0f172a" },
@@ -856,6 +917,11 @@ const s = StyleSheet.create({
   netTextSelected: { color: "#6366f1", fontWeight: "700" },
   scanNetBtn:      { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginTop: 4 },
   scanNetBtnText:  { color: "#6366f1", fontSize: 13, fontWeight: "600" },
+  refreshNetBtn:   { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: 8 },
+
+  identifyBtn:       { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: "#ef4444" },
+  identifyBtnActive: { backgroundColor: "#1f1010" },
+  identifyBtnText:   { color: "#ef4444", fontSize: 12, fontWeight: "600" },
 
   debugPanel: { marginTop: 24, backgroundColor: "#0f172a", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#334155" },
   debugTitle:  { color: "#64748b", fontSize: 11, fontWeight: "700", marginBottom: 6, textTransform: "uppercase" },

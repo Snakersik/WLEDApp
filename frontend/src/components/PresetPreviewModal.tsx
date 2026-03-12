@@ -687,23 +687,6 @@ function computeColors(
       break;
     }
 
-    case 77: { // Meteor Smooth
-      const fpos  = (t * sx / 3000) % N;
-      const trail = Math.max(3, Math.floor(ix / 6));
-      fadeAll(240);
-      for (let j = 0; j < trail; j++) {
-        let fjpos = fpos - j;
-        if (fjpos < 0) fjpos += N;
-        const ipos = Math.floor(fjpos);
-        const frac = fjpos - ipos;
-        const v1   = (1 - j / trail) * (1 - frac);
-        const v2   = (1 - j / trail) * frac;
-        setLed(ipos,           r * v1, g * v1, b * v1);
-        setLed((ipos + 1) % N, r * v2, g * v2, b * v2);
-      }
-      break;
-    }
-
     case 79: { // Ripple
       const maxAge = Math.max(40, 255 - sx);
       fadeAll(220);
@@ -883,7 +866,7 @@ const FX_NAMES: Record<number, string> = {
   40: "Sparkle", 41: "Sparkle Dark", 42: "Fireworks", 44: "Fireworks 1D",
   45: "Rain", 51: "Scanner Dual", 53: "Bouncing Balls", 57: "Lightning",
   65: "Halloween Eyes", 66: "Fire", 67: "Fire Flicker", 68: "Gradient",
-  76: "Meteor", 77: "Meteor Smooth", 79: "Ripple", 88: "Colorwaves",
+  76: "Meteor", 79: "Ripple", 88: "Colorwaves",
   90: "BPM", 91: "Fill Noise", 100: "Sunrise", 109: "Twinklefox",
   110: "Twinklefox Party", 112: "Heartbeat", 116: "Candle", 117: "Starburst",
   126: "Pacifica",
