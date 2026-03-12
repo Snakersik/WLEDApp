@@ -887,7 +887,7 @@ export default function DevicesScreen() {
       {/* OPEN CHOICE MODAL (device vs group) */}
       <Modal
         visible={openChoiceVisible}
-        animationType=”fade”
+        animationType="fade"
         transparent
         onRequestClose={() => setOpenChoiceVisible(false)}
       >
@@ -898,12 +898,12 @@ export default function DevicesScreen() {
           <Pressable style={styles.choiceCard} onPress={() => {}}>
 
             {/* Device name + location */}
-            <View style={{ alignItems: “center”, marginBottom: 20 }}>
+            <View style={{ alignItems: "center", marginBottom: 20 }}>
               <View style={styles.choiceIconWrap}>
-                <Ionicons name=”flash” size={28} color=”#6366f1” />
+                <Ionicons name="flash" size={28} color="#6366f1" />
               </View>
               <Text style={styles.choiceTitle}>
-                {choiceDevice?.name ?? “Urządzenie”}
+                {choiceDevice?.name ?? "Urządzenie"}
               </Text>
               {choiceDevice?.location ? (
                 <Text style={styles.choiceSubtitle}>{choiceDevice.location}</Text>
@@ -922,12 +922,12 @@ export default function DevicesScreen() {
                       router.push(`/(group)/${g.id}`);
                     }}
                   >
-                    <Ionicons name=”layers” size={20} color=”#fff” />
+                    <Ionicons name="layers" size={20} color="#fff" />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.choicePrimaryText}>Steruj grupą</Text>
                       <Text style={styles.choicePrimaryDesc}>{g.name}</Text>
                     </View>
-                    <Ionicons name=”chevron-forward” size={18} color=”#cbd5e1” />
+                    <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
                   </TouchableOpacity>
                 ))
               ) : null}
@@ -941,7 +941,7 @@ export default function DevicesScreen() {
                   if (devId) router.push(`/(device)/${devId}`);
                 }}
               >
-                <Ionicons name=”flash-outline” size={20} color={choiceGroups.length > 0 ? “#94a3b8” : “#fff”} />
+                <Ionicons name="flash-outline" size={20} color={choiceGroups.length > 0 ? "#94a3b8" : "#fff"} />
                 <View style={{ flex: 1 }}>
                   <Text style={choiceGroups.length > 0 ? styles.choiceSecondaryTitle : styles.choicePrimaryText}>
                     Steruj pojedynczym urządzeniem
@@ -950,7 +950,7 @@ export default function DevicesScreen() {
                     <Text style={styles.choiceSecondaryDesc}>Tylko to urządzenie</Text>
                   )}
                 </View>
-                <Ionicons name=”chevron-forward” size={18} color={choiceGroups.length > 0 ? “#475569” : “#cbd5e1”} />
+                <Ionicons name="chevron-forward" size={18} color={choiceGroups.length > 0 ? "#475569" : "#cbd5e1"} />
               </TouchableOpacity>
             </View>
 
