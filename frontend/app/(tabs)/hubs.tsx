@@ -16,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../../src/context/AuthContext";
 import { useHub } from "../../src/context/HubContext";
 import { useLanguage } from "../../src/context/LanguageContext";
@@ -44,7 +45,7 @@ interface Device {
 }
 
 export default function HubScreen() {
-  const { token } = useAuth() as any;
+  const { token, user } = useAuth() as any;
   const { hubIp, refreshHub } = useHub();
   const { t } = useLanguage();
   const router = useRouter();
@@ -368,6 +369,38 @@ export default function HubScreen() {
               <Text style={s.setupBtnText}>{t("configureFixture")}</Text>
             </TouchableOpacity>
 
+            {/* ── Simulate onboarding (dev) ── */}
+            <TouchableOpacity
+              style={s.devBtn}
+              onPress={() =>
+                Alert.alert("Symuluj onboarding", "Zresetuje flagę na backendzie i przejdzie do ekranu onboardingu jak nowy użytkownik.", [
+                  { text: "Anuluj", style: "cancel" },
+                  {
+                    text: "Reset i start",
+                    onPress: async () => {
+                      try {
+                        await fetch(`${API_URL}/auth/onboarding`, {
+                          method: "DELETE",
+                          headers: { Authorization: `Bearer ${token}` },
+                        });
+                        const uid = user?.id ?? user?._id ?? "";
+                        await AsyncStorage.multiRemove([
+                          `control_tutorial_seen_${uid}`,
+                          "control_tutorial_seen",
+                        ]);
+                        router.replace("/onboarding" as any);
+                      } catch {
+                        Alert.alert("Błąd", "Nie udało się zresetować onboardingu");
+                      }
+                    },
+                  },
+                ])
+              }
+            >
+              <Ionicons name="refresh-circle-outline" size={18} color={C.primary2} />
+              <Text style={s.devBtnText}>Symuluj onboarding (dev)</Text>
+            </TouchableOpacity>
+
             {/* ── Stop All Streams ── */}
             {hubOnline && (
               <TouchableOpacity
@@ -549,6 +582,8 @@ const s = StyleSheet.create({
 
   setupBtn:      { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: C.borderMd, padding: 16 },
   setupBtnText:  { fontSize: 14, color: C.primary2, fontWeight: "600", flex: 1 },
+  devBtn:         { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: C.primary + "44", padding: 16 },
+  devBtnText:     { fontSize: 14, color: C.primary2, fontWeight: "600" as const, flex: 1 },
   stopAllBtn:     { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: "#ef444444", padding: 16 },
   stopAllBtnText: { fontSize: 14, color: "#ef4444", fontWeight: "600" as const, flex: 1 },
   restartBtn:     { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: C.red + "44", padding: 16 },
