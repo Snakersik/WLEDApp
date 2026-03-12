@@ -786,8 +786,8 @@ function computeColors(
     case 112: { // Heartbeat (lub-dub pulse)
       const bpm   = 40 + sx * 100 / 255;
       const phase = ((t / 1000) * bpm / 60) % 1;
-      const p1    = Math.exp(-((phase - 0.15) * 60) ** 2);
-      const p2    = Math.exp(-((phase - 0.30) * 80) ** 2) * 0.6;
+      const p1    = Math.exp(-Math.pow((phase - 0.15) * 60, 2));
+      const p2    = Math.exp(-Math.pow((phase - 0.30) * 80, 2)) * 0.6;
       const pulse = Math.max(p1, p2);
       fillSolid(r * pulse, g * pulse, b * pulse);
       break;
