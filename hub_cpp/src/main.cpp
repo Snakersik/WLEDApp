@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include "esp_task_wdt.h"
 #include <WiFiUdp.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
@@ -222,6 +223,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println("\n[HUB] Booting DDP Hub v3.0.0 (C++)");
+  esp_task_wdt_init(30, false); // 30s WDT, no panic — prevents async_tcp crash
 
   if (!LittleFS.begin(true)) {
     Serial.println("LittleFS mount failed");
@@ -306,7 +308,8 @@ void loop() {
   for (auto& s : snaps) {
     for (auto& ip : s.devs) {
       ddpSend(ip.c_str(), s.leds);
-      delay(5); // prevent lwIP buffer overflow
+      delay(2); // prevent lwIP buffer overflow
+      yield();  // let async_tcp task run
     }
   }
 }
