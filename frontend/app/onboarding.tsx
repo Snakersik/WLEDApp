@@ -13,7 +13,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 
 import { useAuth } from "../src/context/AuthContext";
@@ -37,9 +36,8 @@ const STEPS: OStep[] = ["welcome", "check", "group", "finish"];
 // ─────────────────────────────────────────────────────────────
 export default function OnboardingScreen() {
   const router = useRouter();
-  const { token, user } = useAuth() as any;
+  const { token, completeOnboarding } = useAuth() as any;
   const { refreshHub } = useHub();
-  const flagKey = `onboarding_completed_${user?.id}`;
 
   const [step, setStep]           = useState<OStep>("welcome");
   const [loading, setLoading]     = useState(false);
@@ -110,15 +108,15 @@ export default function OnboardingScreen() {
 
   // ── Skip / finish handlers ────────────────────────────────────
   const skipOnboarding = useCallback(async () => {
-    await AsyncStorage.setItem(flagKey, "1");
+    await completeOnboarding().catch(() => {});
     router.replace("/(tabs)/devices");
-  }, [router, flagKey]);
+  }, [router, completeOnboarding]);
 
   const finishOnboarding = useCallback(async () => {
-    await AsyncStorage.setItem(flagKey, "1");
+    await completeOnboarding().catch(() => {});
     await refreshHub();
     router.replace("/(tabs)/devices");
-  }, [router, refreshHub, flagKey]);
+  }, [router, refreshHub, completeOnboarding]);
 
   // ── Group creation ────────────────────────────────────────────
   const createGroup = useCallback(async () => {

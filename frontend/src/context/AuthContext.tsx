@@ -9,9 +9,8 @@ interface User {
   email: string;
   name: string;
   has_subscription: boolean;
+  onboarding_completed: boolean;
   created_at: string;
-
-  // ✅ NEW: mapa triali packów: { "christmas": "2026-02-16T12:34:56Z" }
   pro_trials?: Record<string, string>;
 }
 
@@ -24,9 +23,9 @@ interface AuthContextType {
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   upgradeSubscription: () => Promise<void>;
-
-  // ✅ NEW
   refreshMe: () => Promise<void>;
+  completeOnboarding: () => Promise<void>;
+  resetOnboarding: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -114,6 +113,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     setUser(null);
   };
 
+  const completeOnboarding = async () => {
+    if (!token) return;
+    await axios.patch(`${API_URL}/auth/onboarding`, {}, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (user) {
+      const updated = { ...user, onboarding_completed: true };
+      setUser(updated);
+      await AsyncStorage.setItem("user", JSON.stringify(updated));
+    }
+  };
+
+  const resetOnboarding = async () => {
+    if (!token) return;
+    await axios.delete(`${API_URL}/auth/onboarding`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (user) {
+      const updated = { ...user, onboarding_completed: false };
+      setUser(updated);
+      await AsyncStorage.setItem("user", JSON.stringify(updated));
+    }
+  };
+
   const upgradeSubscription = async () => {
     try {
       await axios.post(
@@ -148,7 +171,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         register,
         logout,
         upgradeSubscription,
-        refreshMe, // ✅ wystawione
+        refreshMe,
+        completeOnboarding,
+        resetOnboarding,
       }}
     >
       {children}

@@ -78,7 +78,7 @@ function Section({ title, children }: { title?: string; children: React.ReactNod
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 export default function ProfileScreen() {
-  const { user, logout, refreshMe } = useAuth();
+  const { user, logout, refreshMe, resetOnboarding } = useAuth() as any;
   const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
   const [langModal, setLangModal] = React.useState(false);
@@ -250,6 +250,15 @@ export default function ProfileScreen() {
             label="Hub Setup"
             value="Configure your hub"
             onPress={() => router.push("/setup")}
+          />
+          <View style={s.separator} />
+          <SettingsRow
+            icon="refresh-outline"
+            label="Pokaż onboarding ponownie"
+            onPress={async () => {
+              await resetOnboarding();
+              router.replace("/onboarding");
+            }}
           />
         </Section>
 

@@ -155,6 +155,7 @@ class User(BaseModel):
     email: str
     name: str
     has_subscription: bool = False
+    onboarding_completed: bool = False
     pro_trials: Dict[str, str] = {}
     created_at: datetime
 
@@ -402,6 +403,7 @@ async def register(user_data: UserRegister):
         "password": get_password_hash(user_data.password),
         "name": user_data.name,
         "has_subscription": False,
+        "onboarding_completed": False,
         "pro_trials": {},
         "created_at": utcnow(),
     }
@@ -412,6 +414,7 @@ async def register(user_data: UserRegister):
         email=user_doc["email"],
         name=user_doc["name"],
         has_subscription=False,
+        onboarding_completed=False,
         pro_trials={},
         created_at=user_doc["created_at"],
     )
@@ -430,6 +433,7 @@ async def login(user_data: UserLogin):
         email=user["email"],
         name=user["name"],
         has_subscription=user.get("has_subscription", False),
+        onboarding_completed=user.get("onboarding_completed", False),
         pro_trials=user.get("pro_trials", {}),
         created_at=user["created_at"],
     )
@@ -443,9 +447,28 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         email=current_user["email"],
         name=current_user["name"],
         has_subscription=current_user.get("has_subscription", False),
+        onboarding_completed=current_user.get("onboarding_completed", False),
         pro_trials=current_user.get("pro_trials", {}),
         created_at=current_user["created_at"],
     )
+
+
+@api_router.patch("/auth/onboarding")
+async def complete_onboarding(current_user: dict = Depends(get_current_user)):
+    await db.users.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"onboarding_completed": True}},
+    )
+    return {"onboarding_completed": True}
+
+
+@api_router.delete("/auth/onboarding")
+async def reset_onboarding(current_user: dict = Depends(get_current_user)):
+    await db.users.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"onboarding_completed": False}},
+    )
+    return {"onboarding_completed": False}
 
 
 @api_router.post("/auth/upgrade-subscription")
