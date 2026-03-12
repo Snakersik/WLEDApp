@@ -116,7 +116,7 @@ static void provisionTask(void*) {
   for (int i = 0; i < n; i++) {
     String ssid     = WiFi.SSID(i);
     String bssidStr = WiFi.BSSIDstr(i);
-    if (ssid.startsWith("WLED") || ssid.indexOf("wled") >= 0) {
+    if ((ssid.startsWith("WLED") || ssid.indexOf("wled") >= 0) && WiFi.RSSI(i) > -80) {
       bool dup = false;
       for (auto& b : seenBssids) { if (b == bssidStr) { dup = true; break; } }
       if (!dup) {
@@ -154,8 +154,10 @@ static void provisionTask(void*) {
       continue;
     }
     Serial.printf("[PROV] Connected, sending WiFi config\n");
+    String gatewayIp = WiFi.gatewayIP().toString();
+    Serial.printf("[PROV] Gateway: %s\n", gatewayIp.c_str());
 
-    // POST WiFi credentials to WLED device (4.3.2.1 is its gateway)
+    // POST WiFi credentials to WLED device via its gateway IP
     // URL-encode SSID and password to handle special chars (&, =, space, #, etc.)
     auto urlEncode = [](const String& s) -> String {
       String out; out.reserve(s.length() * 3);
@@ -183,7 +185,7 @@ static void provisionTask(void*) {
     String body = "CS=" + eSsid + "&CP=" + ePass + "&CS0=" + eSsid + "&PW0=" + ePass
                 + "&AS=WLED-AP&AP=wled1234&CM=" + wledMdns;
     Serial.printf("[PROV] Sending: CS=%s (pass len=%d)\n", mainSsid.c_str(), mainPass.length());
-    http.begin(client, "http://4.3.2.1/settings/wifi");
+    http.begin(client, "http://" + gatewayIp + "/settings/wifi");
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     http.setTimeout(6000);
     int code = http.POST(body);
@@ -195,7 +197,7 @@ static void provisionTask(void*) {
 
     if (code > 0) {
       delay(3000); // wait for WLED to finish serializeConfig() before we disconnect
-      g_provConfigured.push_back({ entry.ssid, "4.3.2.1", entry.bssidStr });
+      g_provConfigured.push_back({ entry.ssid, gatewayIp, entry.bssidStr });
     }
     WiFi.disconnect(true); delay(300);
   }

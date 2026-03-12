@@ -144,10 +144,14 @@ class ConfigCB : public NimBLECharacteristicCallbacks {
 
     // Heap-copy ssid/pass — xTaskCreate lambda needs them after callback returns
     char** args = (char**)malloc(2 * sizeof(char*));
+    if (!args) return;
     args[0] = strdup(ssid);
     args[1] = strdup(pass);
+    if (!args[0] || !args[1]) {
+      free(args[0]); free(args[1]); free(args); return;
+    }
 
-    xTaskCreate([](void* arg) {
+    if (xTaskCreate([](void* arg) {
       char** a = (char**)arg;
       char* ssid = a[0];
       char* pass = a[1];
@@ -185,7 +189,9 @@ class ConfigCB : public NimBLECharacteristicCallbacks {
       Serial.println("[BLE] Rebooting...");
       ESP.restart();
       vTaskDelete(nullptr);
-    }, "ble_wifi", 8192, args, 1, nullptr);
+    }, "ble_wifi", 16384, args, 1, nullptr) != pdPASS) {
+      free(args[0]); free(args[1]); free(args);
+    }
   }
 };
 
