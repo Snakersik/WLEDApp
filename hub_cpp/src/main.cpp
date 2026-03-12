@@ -244,22 +244,7 @@ void setup() {
     Serial.printf("[mDNS] http://%s.local\n", g_hubMeta.mdns_name.c_str());
   }
 
-  // If no groups exist, create a default group with the two kinkiety
-  if (g_groups.empty()) {
-    Group g;
-    g.id   = "1";
-    g.name = "Kinkiety";
-    g.devices.push_back("192.168.10.169");
-    g.devices.push_back("192.168.10.210");
-    g.state.fx  = 9;   // rainbow default
-    g.state.bri = 220;
-    g.state.sx  = 150;
-    g_groups.push_back(std::move(g));
-    saveConfig();
-    Serial.println("Created default group");
-  }
-
-  _udp.begin(4049); // local port (any unused)
+_udp.begin(4049); // local port (any unused)
   setupServer();
 
   Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
