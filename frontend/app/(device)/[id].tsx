@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { ActivityIndicator, Alert, Platform, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Text, TouchableOpacity, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { ScrollView } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -16,7 +17,6 @@ import { EffectSliders } from "../../src/features/deviceControl/components/Effec
 import { ControlTutorialModal } from "../../src/features/deviceControl/components/ControlTutorialModal";
 
 import {
-  DeviceHeader,
   ColorSection,
   PresetsSection,
   BottomBar,
@@ -492,14 +492,21 @@ export default function DeviceControlScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={{ flex: 1 }}>
-        <DeviceHeader
-          device={device}
-          colorHex={adjustedHex}
-          isOn={isOn}
-          onBack={() => router.back()}
-          onLayout={setHeaderHeight}
-          t={t as (k: string) => string}
-        />
+        <View
+          style={styles.header}
+          onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+        >
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#f1f5f9" />
+          </TouchableOpacity>
+          <View style={styles.headerInfo}>
+            <Text style={styles.title}>{device?.name ?? "-"}</Text>
+            <Text style={styles.statusText}>
+              {device?.ip_address} {device?.led_count ? `· ${device.led_count} LEDs` : ""}
+            </Text>
+          </View>
+          <View style={styles.placeholder} />
+        </View>
 
         <ScrollView
           ref={scrollRef}
