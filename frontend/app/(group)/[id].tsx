@@ -667,6 +667,7 @@ export default function GroupControlScreen() {
           <UShapeLiveBorder
             hubIp={hubIp}
             groupId={String(id)}
+            deviceIp={(groupDevices.find((d) => d.is_online) ?? groupDevices[0])?.ip_address}
             pollMs={200}
             thickness={BORDER_THICKNESS}
             smoothing={0.65}

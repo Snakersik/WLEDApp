@@ -5,8 +5,9 @@ import { View, StyleSheet, Dimensions } from "react-native";
 type RGB = [number, number, number];
 
 interface Props {
-  hubIp: string;    // hub IP — polls /groups/{groupId}/avgcolor
-  groupId: string;  // hub group ID (device or group id)
+  hubIp: string;      // hub IP — polls /groups/{groupId}/avgcolor
+  groupId: string;    // hub group ID (device or group id)
+  deviceIp?: string;  // fallback: poll device /json/state when hub doesn't support avgcolor
 
   pollMs?: number;
   thickness?: number;
@@ -39,6 +40,7 @@ function clamp(n: number, a: number, b: number) {
 export const UShapeLiveBorder: React.FC<Props> = ({
   hubIp,
   groupId,
+  deviceIp,
   pollMs = 150,
   thickness = 5,
   smoothing = 0.65,
@@ -49,13 +51,21 @@ export const UShapeLiveBorder: React.FC<Props> = ({
   const inFlightRef = useRef(false);
   const timerRef = useRef<any>(null);
   const mountedRef = useRef(true);
+  // false = try hub avgcolor first, true = hub doesn't support it, use device fallback
+  const useFallbackRef = useRef(false);
 
-  const url = useMemo(() => {
+  const hubUrl = useMemo(() => {
     const ip = (hubIp || "").trim().replace(/^https?:\/\//, "");
     const gid = (groupId || "").trim();
     if (!ip || !gid) return "";
     return `http://${ip}/groups/${gid}/avgcolor`;
   }, [hubIp, groupId]);
+
+  const deviceUrl = useMemo(() => {
+    const ip = (deviceIp || "").trim().replace(/^https?:\/\//, "");
+    if (!ip) return "";
+    return `http://${ip}/json/state`;
+  }, [deviceIp]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -67,15 +77,18 @@ export const UShapeLiveBorder: React.FC<Props> = ({
 
   useEffect(() => {
     let stopped = false;
+    useFallbackRef.current = false; // reset on url change
 
     async function tick() {
       if (stopped) return;
-      if (!url) {
-        timerRef.current = setTimeout(tick, 500);
-        return;
-      }
       if (inFlightRef.current) {
         timerRef.current = setTimeout(tick, clamp(pollMs, 100, 2000));
+        return;
+      }
+
+      const url = !useFallbackRef.current ? hubUrl : deviceUrl;
+      if (!url) {
+        timerRef.current = setTimeout(tick, 500);
         return;
       }
 
@@ -85,21 +98,38 @@ export const UShapeLiveBorder: React.FC<Props> = ({
           method: "GET",
           headers: { "Cache-Control": "no-cache" },
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        if (!res.ok) {
+          // Hub doesn't support avgcolor — switch to device fallback
+          if (!useFallbackRef.current) {
+            useFallbackRef.current = true;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
 
         const json = await res.json();
-        const raw: RGB = [
-          Number(json?.r ?? 0),
-          Number(json?.g ?? 0),
-          Number(json?.b ?? 0),
-        ];
+        let raw: RGB;
+        if (useFallbackRef.current) {
+          // Device /json/state format: { on, bri, seg:[{col:[[r,g,b]]}] }
+          const isOn: boolean = json?.on ?? true;
+          const bri: number = clamp(Number(json?.bri ?? 255), 0, 255);
+          const col0 = json?.seg?.[0]?.col?.[0];
+          const base: RGB = Array.isArray(col0) && col0.length >= 3
+            ? [Number(col0[0]), Number(col0[1]), Number(col0[2])]
+            : [255, 255, 255];
+          const scale = isOn ? bri / 255 : 0;
+          raw = [base[0] * scale, base[1] * scale, base[2] * scale];
+        } else {
+          // Hub avgcolor format: { r, g, b }
+          raw = [Number(json?.r ?? 0), Number(json?.g ?? 0), Number(json?.b ?? 0)];
+        }
 
         if (!mountedRef.current) return;
         const smooth = smoothAdaptive(prevColor.current, raw, smoothing);
         prevColor.current = smooth;
         setColor(smooth);
       } catch {
-        // silently ignore — hub may be temporarily unreachable
+        // silently ignore — device/hub temporarily unreachable
       } finally {
         inFlightRef.current = false;
         if (!stopped) {
@@ -113,7 +143,7 @@ export const UShapeLiveBorder: React.FC<Props> = ({
       stopped = true;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [url, pollMs, smoothing]);
+  }, [hubUrl, deviceUrl, pollMs, smoothing]);
 
   const { height } = Dimensions.get("window");
   const css = useMemo(() => rgbCss(color), [color]);

@@ -599,6 +599,7 @@ export default function DeviceControlScreen() {
           <UShapeLiveBorder
             hubIp={hubIp}
             groupId={String(id)}
+            deviceIp={device?.ip_address}
             pollMs={200}
             thickness={BORDER_THICKNESS}
             smoothing={0.65}
