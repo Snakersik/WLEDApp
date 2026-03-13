@@ -489,32 +489,47 @@ export default function HubScreen() {
       </ScrollView>
 
       {/* Add hub modal */}
-      <Modal visible={addHubModal} transparent animationType="fade" onRequestClose={() => setAddHubModal(false)}>
+      <Modal visible={addHubModal} transparent animationType="slide" onRequestClose={() => setAddHubModal(false)}>
         <View style={s.overlay}>
           <View style={s.modal}>
-            <TouchableOpacity style={{ alignSelf: "flex-end", padding: 4, marginBottom: 4 }} onPress={() => setAddHubModal(false)}>
-              <Ionicons name="close" size={22} color={C.text2} />
-            </TouchableOpacity>
-            <Text style={s.modalTitle}>Dodaj hub</Text>
+            {/* Handle bar */}
+            <View style={s.modalHandle} />
+            <View style={s.modalHeaderRow}>
+              <Text style={s.modalTitle}>Dodaj hub</Text>
+              <TouchableOpacity onPress={() => setAddHubModal(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Ionicons name="close" size={22} color={C.text2} />
+              </TouchableOpacity>
+            </View>
+            <Text style={s.addChoiceQuestion}>Czy Twój hub jest już podłączony do sieci WiFi?</Text>
+
+            {/* Nie — BLE */}
             <TouchableOpacity
-              style={[s.addChoiceBtn, { marginBottom: 10 }]}
+              style={s.addChoiceBtn}
               onPress={() => { setAddHubModal(false); router.push("/setup" as any); }}
+              activeOpacity={0.75}
             >
-              <Ionicons name="bluetooth-outline" size={22} color="#6366f1" />
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={s.addChoiceTitle}>Nowy hub — przez Bluetooth</Text>
-                <Text style={s.addChoiceDesc}>Hub jeszcze nie jest w sieci. Sparuj go przez BLE i skonfiguruj WiFi.</Text>
+              <View style={[s.addChoiceIconWrap, { backgroundColor: "#6366f122" }]}>
+                <Ionicons name="bluetooth" size={20} color="#818cf8" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.addChoiceTitle}>Nie — skonfiguruj przez Bluetooth</Text>
+                <Text style={s.addChoiceDesc}>Hub jest nowy lub nie ma jeszcze WiFi. Sparujemy go przez BLE.</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={C.text3} />
             </TouchableOpacity>
+
+            {/* Tak — manual IP */}
             <TouchableOpacity
               style={s.addChoiceBtn}
               onPress={() => { setAddHubModal(false); router.push("/setup?mode=manual" as any); }}
+              activeOpacity={0.75}
             >
-              <Ionicons name="wifi-outline" size={22} color="#22c55e" />
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={s.addChoiceTitle}>Hub już w sieci — wpisz IP</Text>
-                <Text style={s.addChoiceDesc}>Hub jest już podłączony do WiFi. Podaj jego adres IP.</Text>
+              <View style={[s.addChoiceIconWrap, { backgroundColor: "#22c55e22" }]}>
+                <Ionicons name="wifi" size={20} color="#4ade80" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.addChoiceTitle}>Tak — wpisz adres IP</Text>
+                <Text style={s.addChoiceDesc}>Hub jest już w sieci. Podaj jego lokalny adres IP.</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={C.text3} />
             </TouchableOpacity>
@@ -640,7 +655,11 @@ const s = StyleSheet.create({
   btnCancelText: { color: C.text2, fontWeight: "600" },
   btnSave:       { flex: 1, padding: 13, borderRadius: 12, backgroundColor: C.primary, alignItems: "center" },
   btnSaveText:   { color: "#fff", fontWeight: "700" },
-  addChoiceBtn:  { flexDirection: "row", alignItems: "center", backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 14 },
-  addChoiceTitle: { color: C.text1, fontWeight: "600", fontSize: 14, marginBottom: 2 },
-  addChoiceDesc:  { color: C.text3, fontSize: 12 },
+  modalHandle:      { width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: "center", marginBottom: 16 },
+  modalHeaderRow:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  addChoiceQuestion: { color: C.text2, fontSize: 13, marginBottom: 14 },
+  addChoiceBtn:     { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: C.bgCard, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 14, marginBottom: 10 },
+  addChoiceIconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  addChoiceTitle:   { color: C.text1, fontWeight: "600", fontSize: 14, marginBottom: 2 },
+  addChoiceDesc:    { color: C.text3, fontSize: 12 },
 });
