@@ -14,7 +14,7 @@
 struct SegState {
   bool    on  = true;
   uint8_t bri = 220;
-  uint8_t fx  = 9;
+  uint8_t fx  = 5;  // Wipe Reversed (was 9 = Rainbow)
   uint8_t sx  = 128;
   uint8_t ix  = 128;
   uint8_t col[3] = {0, 120, 255};

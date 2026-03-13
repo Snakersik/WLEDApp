@@ -110,6 +110,12 @@ export default function DeviceControlScreen() {
     },
   });
 
+  // Refs so useFocusEffect doesn't re-run when device/hubIp load async
+  const deviceRef = useRef(device);
+  const hubIpRef  = useRef(hubIp);
+  useEffect(() => { deviceRef.current = device; }, [device]);
+  useEffect(() => { hubIpRef.current  = hubIp;  }, [hubIp]);
+
   // ✅ PALETTE
   const paletteCtl = usePaletteControl({
     selectedPreset,
@@ -146,24 +152,26 @@ export default function DeviceControlScreen() {
   }, [hubIp]);
 
   // On focus: wipe ALL hub groups → register only this device group.
-  // On blur: stop stream (delete all groups).
+  // Uses refs so deps don't change mid-load (prevents re-run after init).
   useFocusEffect(
     useCallback(() => {
-      if (!device || !hubIp) return;
+      const dev   = deviceRef.current;
+      const hubip = hubIpRef.current;
+      if (!dev || !hubip) return;
       const deviceGroupId = String(id);
 
-      HubService.getGroups(hubIp)
+      HubService.getGroups(hubip)
         .then((groups) =>
-          Promise.allSettled(groups.map((g) => HubService.deleteGroup(hubIp, g.id))),
+          Promise.allSettled(groups.map((g) => HubService.deleteGroup(hubip, g.id))),
         )
         .catch(() => {})
         .finally(() => {
-          HubService.upsertGroup(hubIp, deviceGroupId, device.name, [device.ip_address])
+          HubService.upsertGroup(hubip, deviceGroupId, dev.name, [dev.ip_address])
             .then(() => setIsStreaming(true))
             .catch(() => {});
         });
 
-    }, [device, hubIp, id, stopStream]),
+    }, [id]),
   );
 
   const controlViaHub = useCallback(
