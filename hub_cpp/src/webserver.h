@@ -451,26 +451,49 @@ void setupServer() {
     }
   ));
 
-  // GET /groups/{id}/state
+  // GET /groups/{id}/state  OR  GET /groups/{id}/avgcolor
   _srv.on("/groups/*", HTTP_GET, [](AsyncWebServerRequest* req) {
     String path = req->url();
-    // /groups/{id}/state
     int sl = path.lastIndexOf('/');
     String sub = path.substring(sl + 1);
     String gid;
+
     if (sub == "state") {
-      gid = path.substring(8, sl); // strip /groups/ and /state
+      gid = path.substring(8, sl);
+      JsonDocument d;
+      taskENTER_CRITICAL(&g_mux);
+      Group* g = findGroup(gid);
+      if (!g) { taskEXIT_CRITICAL(&g_mux); sendErr(req, "not found", 404); return; }
+      stateToJson(g->state, d.to<JsonObject>());
+      taskEXIT_CRITICAL(&g_mux);
+      sendJson(req, d);
+    } else if (sub == "avgcolor") {
+      // Returns average color of current LED buffer (live DDP output)
+      gid = path.substring(8, sl);
+      taskENTER_CRITICAL(&g_mux);
+      Group* g = findGroup(gid);
+      if (!g) { taskEXIT_CRITICAL(&g_mux); sendErr(req, "not found", 404); return; }
+      uint32_t r = 0, gr = 0, b = 0;
+      for (int i = 0; i < NUM_LEDS; i++) {
+        r  += g->leds[i].r;
+        gr += g->leds[i].g;
+        b  += g->leds[i].b;
+      }
+      r  = r  / NUM_LEDS;
+      gr = gr / NUM_LEDS;
+      b  = b  / NUM_LEDS;
+      // Scale by brightness
+      uint8_t bri = g->state.bri;
+      taskEXIT_CRITICAL(&g_mux);
+      r  = r  * bri / 255;
+      gr = gr * bri / 255;
+      b  = b  * bri / 255;
+      JsonDocument d;
+      d["r"] = (int)r; d["g"] = (int)gr; d["b"] = (int)b;
+      sendJson(req, d);
     } else {
-      // /groups/{id} GET — not separately implemented, reuse groups list
       sendErr(req, "use GET /groups"); return;
     }
-    JsonDocument d;
-    taskENTER_CRITICAL(&g_mux);
-    Group* g = findGroup(gid);
-    if (!g) { taskEXIT_CRITICAL(&g_mux); sendErr(req, "not found", 404); return; }
-    stateToJson(g->state, d.to<JsonObject>());
-    taskEXIT_CRITICAL(&g_mux);
-    sendJson(req, d);
   });
 
   // DELETE /groups/{id}

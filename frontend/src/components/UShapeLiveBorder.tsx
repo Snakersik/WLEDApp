@@ -5,11 +5,8 @@ import { View, StyleSheet, Dimensions } from "react-native";
 type RGB = [number, number, number];
 
 interface Props {
-  ip: string; // WLED device IP — polls /json/state directly
-
-  leftCount?: number;  // kept for API compat, unused (no per-LED data from /json/state)
-  topCount?: number;
-  rightCount?: number;
+  hubIp: string;    // hub IP — polls /groups/{groupId}/avgcolor
+  groupId: string;  // hub group ID (device or group id)
 
   pollMs?: number;
   thickness?: number;
@@ -18,7 +15,6 @@ interface Props {
 }
 
 const clamp255 = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-
 const rgbCss = (rgb: RGB) =>
   `rgb(${clamp255(rgb[0])},${clamp255(rgb[1])},${clamp255(rgb[2])})`;
 
@@ -41,7 +37,8 @@ function clamp(n: number, a: number, b: number) {
 }
 
 export const UShapeLiveBorder: React.FC<Props> = ({
-  ip,
+  hubIp,
+  groupId,
   pollMs = 150,
   thickness = 5,
   smoothing = 0.65,
@@ -53,10 +50,12 @@ export const UShapeLiveBorder: React.FC<Props> = ({
   const timerRef = useRef<any>(null);
   const mountedRef = useRef(true);
 
-  const cleanIp = useMemo(
-    () => (ip || "").trim().replace(/^https?:\/\//, ""),
-    [ip],
-  );
+  const url = useMemo(() => {
+    const ip = (hubIp || "").trim().replace(/^https?:\/\//, "");
+    const gid = (groupId || "").trim();
+    if (!ip || !gid) return "";
+    return `http://${ip}/groups/${gid}/avgcolor`;
+  }, [hubIp, groupId]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -71,7 +70,7 @@ export const UShapeLiveBorder: React.FC<Props> = ({
 
     async function tick() {
       if (stopped) return;
-      if (!cleanIp) {
+      if (!url) {
         timerRef.current = setTimeout(tick, 500);
         return;
       }
@@ -82,31 +81,25 @@ export const UShapeLiveBorder: React.FC<Props> = ({
 
       inFlightRef.current = true;
       try {
-        const res = await fetch(`http://${cleanIp}/json/state`, {
+        const res = await fetch(url, {
           method: "GET",
           headers: { "Cache-Control": "no-cache" },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const json = await res.json();
-        const isOn: boolean = json?.on ?? true;
-        const bri: number = clamp(Number(json?.bri ?? 255), 0, 255);
-        const col0 = json?.seg?.[0]?.col?.[0];
-        const raw: RGB =
-          Array.isArray(col0) && col0.length >= 3
-            ? [Number(col0[0]), Number(col0[1]), Number(col0[2])]
-            : [255, 255, 255];
-
-        // Scale by brightness and apply on/off
-        const scale = isOn ? bri / 255 : 0;
-        const scaled: RGB = [raw[0] * scale, raw[1] * scale, raw[2] * scale];
+        const raw: RGB = [
+          Number(json?.r ?? 0),
+          Number(json?.g ?? 0),
+          Number(json?.b ?? 0),
+        ];
 
         if (!mountedRef.current) return;
-        const smooth = smoothAdaptive(prevColor.current, scaled, smoothing);
+        const smooth = smoothAdaptive(prevColor.current, raw, smoothing);
         prevColor.current = smooth;
         setColor(smooth);
       } catch {
-        // silently ignore — device may be temporarily unreachable
+        // silently ignore — hub may be temporarily unreachable
       } finally {
         inFlightRef.current = false;
         if (!stopped) {
@@ -120,7 +113,7 @@ export const UShapeLiveBorder: React.FC<Props> = ({
       stopped = true;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [cleanIp, pollMs, smoothing]);
+  }, [url, pollMs, smoothing]);
 
   const { height } = Dimensions.get("window");
   const css = useMemo(() => rgbCss(color), [color]);

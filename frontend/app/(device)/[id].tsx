@@ -554,9 +554,10 @@ export default function DeviceControlScreen() {
         />
 
         {/* Border renderowany jako ostatni — na wierzchu ScrollView/BottomBar */}
-        {!!device?.ip_address && (
+        {!!hubIp && !!isStreaming && (
           <UShapeLiveBorder
-            ip={device.ip_address}
+            hubIp={hubIp}
+            groupId={String(id)}
             pollMs={200}
             thickness={BORDER_THICKNESS}
             smoothing={0.65}

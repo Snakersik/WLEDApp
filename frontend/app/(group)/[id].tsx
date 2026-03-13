@@ -538,9 +538,6 @@ export default function GroupControlScreen() {
   const BORDER_THICKNESS = 6;
   const BORDER_GUTTER = BORDER_THICKNESS + 10;
 
-  // Preview: preferuj online, fallback na pierwszy dostępny
-  const previewDeviceIp = (groupDevices.find((d) => d.is_online) ?? groupDevices[0])?.ip_address ?? null;
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={{ flex: 1 }}>
@@ -647,9 +644,10 @@ export default function GroupControlScreen() {
         />
 
         {/* Border renderowany jako ostatni — na wierzchu ScrollView/BottomBar */}
-        {!!previewDeviceIp && (
+        {!!hubIp && !!isStreaming && (
           <UShapeLiveBorder
-            ip={previewDeviceIp}
+            hubIp={hubIp}
+            groupId={String(id)}
             pollMs={200}
             thickness={BORDER_THICKNESS}
             smoothing={0.65}
