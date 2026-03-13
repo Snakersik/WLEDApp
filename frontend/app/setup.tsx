@@ -72,7 +72,9 @@ export default function SetupScreen() {
   const { token } = useAuth() as any;
   const { refreshHub } = useHub();
 
-  const [step, setStep]               = useState<Step>(mode === "manual" ? "hub_ip" : "intro");
+  const [step, setStep]               = useState<Step>(
+    mode === "manual" ? "hub_ip" : mode === "lanscan" ? "hub_lan_scan" : "intro"
+  );
   // for LAN scan retry
   const [lastMdnsName, setLastMdnsName] = useState<string | undefined>(undefined);
   const [lastHubId, setLastHubId]       = useState<string | undefined>(undefined);
@@ -145,6 +147,25 @@ export default function SetupScreen() {
       isMounted.current = false;
       destroyBleManager();
     };
+  }, []);
+
+  // Auto-start LAN scan when opened with mode=lanscan
+  useEffect(() => {
+    if (mode !== "lanscan") return;
+    setStatusMsg("Szukam huba w sieci…");
+    (async () => {
+      const foundIp = await findHubOnLan(30_000);
+      if (!isMounted.current) return;
+      if (foundIp) {
+        setHubIpInput(foundIp);
+        await registerHubAt(foundIp, undefined, undefined);
+      } else {
+        setLastMdnsName(undefined);
+        setLastHubId(undefined);
+        setStatusMsg("scan_failed");
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── WiFi network scan ────────────────────────────────────────

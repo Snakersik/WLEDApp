@@ -518,18 +518,18 @@ export default function HubScreen() {
               <Ionicons name="chevron-forward" size={18} color={C.text3} />
             </TouchableOpacity>
 
-            {/* Tak — manual IP */}
+            {/* Tak — LAN scan */}
             <TouchableOpacity
               style={s.addChoiceBtn}
-              onPress={() => { setAddHubModal(false); router.push("/setup?mode=manual" as any); }}
+              onPress={() => { setAddHubModal(false); router.push("/setup?mode=lanscan" as any); }}
               activeOpacity={0.75}
             >
               <View style={[s.addChoiceIconWrap, { backgroundColor: "#22c55e22" }]}>
                 <Ionicons name="wifi" size={20} color="#4ade80" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.addChoiceTitle}>Tak — wpisz adres IP</Text>
-                <Text style={s.addChoiceDesc}>Hub jest już w sieci. Podaj jego lokalny adres IP.</Text>
+                <Text style={s.addChoiceTitle}>Tak — wykryj automatycznie</Text>
+                <Text style={s.addChoiceDesc}>Przeszukamy sieć i znajdziemy huba. Możesz też wpisać IP ręcznie.</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={C.text3} />
             </TouchableOpacity>
