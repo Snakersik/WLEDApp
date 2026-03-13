@@ -6,6 +6,8 @@ import { Preset } from "../types";
 import { styles } from "../styles";
 import { PresetPreviewModal } from "../../../components/PresetPreviewModal";
 import { PRESET_COLOR_MAPPING, PRESET_COLORS } from "../constants";
+import { useLanguage } from "../../../context/LanguageContext";
+import { getEffectName } from "../../../i18n/effectNames";
 
 const CATEGORY_ORDER = [
   "Ambient", "Dynamic", "Rainbow", "Nature", "Twinkle", "Party", "Special",
@@ -28,6 +30,7 @@ export function PresetsSection(props: {
   } = props;
 
   const [previewPreset, setPreviewPreset] = useState<Preset | null>(null);
+  const { t } = useLanguage();
 
   const categories = useMemo(() => {
     const present = new Set(presets.map((p) => p.category ?? "Other"));
@@ -118,7 +121,7 @@ export function PresetsSection(props: {
                   isSelected && styles.presetNameSelected,
                 ]}
               >
-                {preset.name}
+                {getEffectName(preset.name, t as (key: string) => string)}
               </Text>
 
               {preset.pack_id ? (

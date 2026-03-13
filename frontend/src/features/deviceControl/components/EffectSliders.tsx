@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { styles } from "../styles";
 import { useLanguage } from "../../../context/LanguageContext";
+import { getEffectName } from "../../../i18n/effectNames";
 
 export function EffectSliders(props: {
   speed: number;
@@ -41,7 +42,7 @@ export function EffectSliders(props: {
         <Text style={styles.sectionTitle}>{t("activeEffect")}</Text>
         {!!presetName && (
           <Text style={{ color: "#6366f1", fontSize: 13, fontWeight: "600", flexShrink: 1 }}>
-            {presetName}
+            {getEffectName(presetName, t as (key: string) => string)}
           </Text>
         )}
       </View>
