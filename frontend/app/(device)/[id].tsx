@@ -151,39 +151,60 @@ export default function DeviceControlScreen() {
       .catch(() => {});
   }, [hubIp]);
 
-  // Track focus state so Step B knows whether to register group
   const isFocused = useRef(false);
 
-  // Step A: on focus — IMMEDIATELY delete all hub groups (no device data needed).
-  // Step B is a separate useEffect that creates the device group once data is ready.
+  // On focus: "steal" this device from any running hub groups so other devices
+  // in those groups keep streaming, then create an individual group for this device.
   useFocusEffect(
     useCallback(() => {
       isFocused.current = true;
       const hubip = hubIpRef.current;
-      if (hubip) {
-        HubService.getGroups(hubip)
-          .then((groups) => Promise.allSettled(groups.map((g) => HubService.deleteGroup(hubip, g.id))))
-          .catch(() => {})
-          .finally(() => {
-            // Device may already be loaded — register immediately
-            const dev = deviceRef.current;
-            if (dev && isFocused.current) {
-              HubService.upsertGroup(hubip, String(id), dev.name, [dev.ip_address])
-                .then(() => { if (isFocused.current) setIsStreaming(true); })
-                .catch(() => {});
-            }
-          });
-      }
+      const dev   = deviceRef.current;
+      if (!hubip || !dev) return;
+
+      (async () => {
+        try {
+          const hubGroups = await HubService.getGroups(hubip);
+          await Promise.allSettled(
+            hubGroups.map((g) => {
+              const remaining = g.devices.filter((ip) => ip !== dev.ip_address);
+              if (remaining.length === 0) {
+                return HubService.deleteGroup(hubip, g.id);
+              }
+              // Keep the group alive for the other devices, just without this one
+              return HubService.upsertGroup(hubip, g.id, g.id, remaining);
+            }),
+          );
+        } catch { /* hub offline — ignore */ }
+
+        if (!isFocused.current) return;
+        await HubService.upsertGroup(hubip, String(id), dev.name, [dev.ip_address]).catch(() => {});
+        if (isFocused.current) setIsStreaming(true);
+      })();
+
       return () => { isFocused.current = false; };
     }, [id]),
   );
 
-  // Step B: device loaded AFTER focus was already active → register it now
+  // When device loads AFTER focus is active (slow network) → register it
   useEffect(() => {
     if (!isFocused.current || !device || !hubIp) return;
-    HubService.upsertGroup(hubIp, String(id), device.name, [device.ip_address])
-      .then(() => { if (isFocused.current) setIsStreaming(true); })
-      .catch(() => {});
+    (async () => {
+      try {
+        const hubGroups = await HubService.getGroups(hubIp);
+        await Promise.allSettled(
+          hubGroups.map((g) => {
+            if (g.id === String(id)) return; // already our group
+            const remaining = g.devices.filter((ip) => ip !== device.ip_address);
+            if (remaining.length === 0) return HubService.deleteGroup(hubIp, g.id);
+            return HubService.upsertGroup(hubIp, g.id, g.id, remaining);
+          }),
+        );
+      } catch { /* ignore */ }
+      if (!isFocused.current) return;
+      await HubService.upsertGroup(hubIp, String(id), device.name, [device.ip_address]).catch(() => {});
+      if (isFocused.current) setIsStreaming(true);
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device, hubIp]);
 
