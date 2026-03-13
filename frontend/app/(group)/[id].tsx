@@ -152,6 +152,15 @@ export default function GroupControlScreen() {
   const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSentColorRef = useRef<string>("");
   const scrollRef = useRef<ScrollView>(null);
+  const isFocused = useRef(false);
+
+  // Refs so focus effects don't re-run on async state changes
+  const groupRef        = useRef(group);
+  const hubIpRef        = useRef(hubIp);
+  const groupDevicesRef = useRef(groupDevices);
+  useEffect(() => { groupRef.current        = group;        }, [group]);
+  useEffect(() => { hubIpRef.current        = hubIp;        }, [hubIp]);
+  useEffect(() => { groupDevicesRef.current = groupDevices; }, [groupDevices]);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>("power");
@@ -246,27 +255,37 @@ export default function GroupControlScreen() {
       .catch(() => {});
   }, [hubIp]);
 
-  // On focus: wipe ALL hub groups → register only this group.
-  // On blur: stop stream (delete all groups).
+  // Step A: on focus — IMMEDIATELY delete all hub groups (no group data needed).
   useFocusEffect(
     useCallback(() => {
-      if (!group || !hubIp || !groupDevices.length) return;
-      const currentId = String(id);
-      const ips = groupDevices.map((d) => d.ip_address);
-
-      HubService.getGroups(hubIp)
-        .then((hubGroups) =>
-          Promise.allSettled(hubGroups.map((g) => HubService.deleteGroup(hubIp, g.id))),
-        )
-        .catch(() => {})
-        .finally(() => {
-          HubService.upsertGroup(hubIp, currentId, group.name, ips)
-            .then(() => setIsStreaming(true))
-            .catch(() => dbg("upsertGroup failed (hub may be offline)"));
-        });
-
-    }, [group, hubIp, groupDevices, id, stopStream]),
+      isFocused.current = true;
+      const hubip = hubIpRef.current;
+      if (hubip) {
+        HubService.getGroups(hubip)
+          .then((hubGroups) => Promise.allSettled(hubGroups.map((g) => HubService.deleteGroup(hubip, g.id))))
+          .catch(() => {})
+          .finally(() => {
+            const grp  = groupRef.current;
+            const devs = groupDevicesRef.current;
+            if (grp && devs.length && isFocused.current) {
+              HubService.upsertGroup(hubip, String(id), grp.name, devs.map((d) => d.ip_address))
+                .then(() => { if (isFocused.current) setIsStreaming(true); })
+                .catch(() => dbg("upsertGroup failed (hub may be offline)"));
+            }
+          });
+      }
+      return () => { isFocused.current = false; };
+    }, [id]),
   );
+
+  // Step B: group/devices loaded AFTER focus was already active → register now
+  useEffect(() => {
+    if (!isFocused.current || !group || !hubIp || !groupDevices.length) return;
+    HubService.upsertGroup(hubIp, String(id), group.name, groupDevices.map((d) => d.ip_address))
+      .then(() => { if (isFocused.current) setIsStreaming(true); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group, hubIp, groupDevices]);
 
   const sendEffectParams = (sx: number, ix: number) => {
     if (!hubIp) return;

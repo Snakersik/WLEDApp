@@ -151,28 +151,41 @@ export default function DeviceControlScreen() {
       .catch(() => {});
   }, [hubIp]);
 
-  // On focus: wipe ALL hub groups → register only this device group.
-  // Uses refs so deps don't change mid-load (prevents re-run after init).
+  // Track focus state so Step B knows whether to register group
+  const isFocused = useRef(false);
+
+  // Step A: on focus — IMMEDIATELY delete all hub groups (no device data needed).
+  // Step B is a separate useEffect that creates the device group once data is ready.
   useFocusEffect(
     useCallback(() => {
-      const dev   = deviceRef.current;
+      isFocused.current = true;
       const hubip = hubIpRef.current;
-      if (!dev || !hubip) return;
-      const deviceGroupId = String(id);
-
-      HubService.getGroups(hubip)
-        .then((groups) =>
-          Promise.allSettled(groups.map((g) => HubService.deleteGroup(hubip, g.id))),
-        )
-        .catch(() => {})
-        .finally(() => {
-          HubService.upsertGroup(hubip, deviceGroupId, dev.name, [dev.ip_address])
-            .then(() => setIsStreaming(true))
-            .catch(() => {});
-        });
-
+      if (hubip) {
+        HubService.getGroups(hubip)
+          .then((groups) => Promise.allSettled(groups.map((g) => HubService.deleteGroup(hubip, g.id))))
+          .catch(() => {})
+          .finally(() => {
+            // Device may already be loaded — register immediately
+            const dev = deviceRef.current;
+            if (dev && isFocused.current) {
+              HubService.upsertGroup(hubip, String(id), dev.name, [dev.ip_address])
+                .then(() => { if (isFocused.current) setIsStreaming(true); })
+                .catch(() => {});
+            }
+          });
+      }
+      return () => { isFocused.current = false; };
     }, [id]),
   );
+
+  // Step B: device loaded AFTER focus was already active → register it now
+  useEffect(() => {
+    if (!isFocused.current || !device || !hubIp) return;
+    HubService.upsertGroup(hubIp, String(id), device.name, [device.ip_address])
+      .then(() => { if (isFocused.current) setIsStreaming(true); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [device, hubIp]);
 
   const controlViaHub = useCallback(
     async (payload: BackendControlPayload) => {
