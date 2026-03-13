@@ -65,6 +65,9 @@ export default function HubScreen() {
   const [editIp, setEditIp] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Add hub modal
+  const [addHubModal, setAddHubModal] = useState(false);
+
 
   // Scan state
   const [scanning, setScanning] = useState(false);
@@ -263,7 +266,7 @@ export default function HubScreen() {
               <Ionicons name="settings-outline" size={22} color={C.text2} />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={s.addBtn} onPress={() => router.push("/setup")}>
+            <TouchableOpacity style={s.addBtn} onPress={() => setAddHubModal(true)}>
               <Ionicons name="add" size={22} color="#fff" />
             </TouchableOpacity>
           )}
@@ -275,7 +278,7 @@ export default function HubScreen() {
             <Ionicons name="hardware-chip-outline" size={64} color={C.text3} />
             <Text style={s.emptyTitle}>{t("noHub")}</Text>
             <Text style={s.emptyText}>{t("noHubSubtext")}</Text>
-            <TouchableOpacity style={s.addBtn2} onPress={() => router.push("/setup")}>
+            <TouchableOpacity style={s.addBtn2} onPress={() => setAddHubModal(true)}>
               <Ionicons name="add" size={18} color="#fff" />
               <Text style={s.addBtnText}>{t("addHub")}</Text>
             </TouchableOpacity>
@@ -485,6 +488,40 @@ export default function HubScreen() {
         )}
       </ScrollView>
 
+      {/* Add hub modal */}
+      <Modal visible={addHubModal} transparent animationType="fade" onRequestClose={() => setAddHubModal(false)}>
+        <View style={s.overlay}>
+          <View style={s.modal}>
+            <TouchableOpacity style={{ alignSelf: "flex-end", padding: 4, marginBottom: 4 }} onPress={() => setAddHubModal(false)}>
+              <Ionicons name="close" size={22} color={C.text2} />
+            </TouchableOpacity>
+            <Text style={s.modalTitle}>Dodaj hub</Text>
+            <TouchableOpacity
+              style={[s.addChoiceBtn, { marginBottom: 10 }]}
+              onPress={() => { setAddHubModal(false); router.push("/setup" as any); }}
+            >
+              <Ionicons name="bluetooth-outline" size={22} color="#6366f1" />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={s.addChoiceTitle}>Nowy hub — przez Bluetooth</Text>
+                <Text style={s.addChoiceDesc}>Hub jeszcze nie jest w sieci. Sparuj go przez BLE i skonfiguruj WiFi.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={C.text3} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.addChoiceBtn}
+              onPress={() => { setAddHubModal(false); router.push("/setup?mode=manual" as any); }}
+            >
+              <Ionicons name="wifi-outline" size={22} color="#22c55e" />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={s.addChoiceTitle}>Hub już w sieci — wpisz IP</Text>
+                <Text style={s.addChoiceDesc}>Hub jest już podłączony do WiFi. Podaj jego adres IP.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={C.text3} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Edit hub modal */}
       <Modal visible={editModal} transparent animationType="slide">
         <View style={s.overlay}>
@@ -603,4 +640,7 @@ const s = StyleSheet.create({
   btnCancelText: { color: C.text2, fontWeight: "600" },
   btnSave:       { flex: 1, padding: 13, borderRadius: 12, backgroundColor: C.primary, alignItems: "center" },
   btnSaveText:   { color: "#fff", fontWeight: "700" },
+  addChoiceBtn:  { flexDirection: "row", alignItems: "center", backgroundColor: C.bgCard, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 14 },
+  addChoiceTitle: { color: C.text1, fontWeight: "600", fontSize: 14, marginBottom: 2 },
+  addChoiceDesc:  { color: C.text3, fontSize: 12 },
 });

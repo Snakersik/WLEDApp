@@ -68,11 +68,14 @@ const LOCATIONS = [
 // ─────────────────────────────────────────────────────────────
 export default function SetupScreen() {
   const router = useRouter();
-  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+  const { returnTo, mode } = useLocalSearchParams<{ returnTo?: string; mode?: string }>();
   const { token } = useAuth() as any;
   const { refreshHub } = useHub();
 
-  const [step, setStep]               = useState<Step>("intro");
+  const [step, setStep]               = useState<Step>(mode === "manual" ? "hub_ip" : "intro");
+  // for LAN scan retry
+  const [lastMdnsName, setLastMdnsName] = useState<string | undefined>(undefined);
+  const [lastHubId, setLastHubId]       = useState<string | undefined>(undefined);
   const [statusMsg, setStatusMsg]     = useState("");
   const [foundDevice, setFoundDevice] = useState<Device | null>(null);
 
@@ -248,8 +251,10 @@ export default function SetupScreen() {
         setHubIpInput(foundIp);
         await registerHubAt(foundIp, mdnsName, hubId);
       } else {
-        addDebug("Nie znaleziono — ręczny IP");
-        go("hub_ip");
+        addDebug("Nie znaleziono — opcje retry/manual");
+        setLastMdnsName(mdnsName);
+        setLastHubId(hubId);
+        go("hub_lan_scan", "scan_failed");
       }
     };
 
@@ -623,7 +628,7 @@ export default function SetupScreen() {
           )}
 
           {/* ── HUB LAN SCAN ── */}
-          {step === "hub_lan_scan" && (
+          {step === "hub_lan_scan" && statusMsg !== "scan_failed" && (
             <Card>
               <ActivityIndicator size="large" color="#6366f1" style={s.icon} />
               <Text style={s.heading}>Szukam huba w sieci</Text>
@@ -631,6 +636,36 @@ export default function SetupScreen() {
               <Text style={s.hint}>
                 Hub właśnie dołączył do WiFi. To może zająć ~30 sekund.
               </Text>
+            </Card>
+          )}
+
+          {/* ── HUB LAN SCAN FAILED ── */}
+          {step === "hub_lan_scan" && statusMsg === "scan_failed" && (
+            <Card>
+              <Ionicons name="wifi-outline" size={48} color="#f59e0b" style={s.icon} />
+              <Text style={s.heading}>Nie znaleziono huba</Text>
+              <Text style={s.body}>
+                Nie udało się automatycznie wykryć huba w sieci. Możesz spróbować ponownie lub wpisać adres IP ręcznie.
+              </Text>
+              <PrimaryBtn
+                label="Spróbuj ponownie"
+                onPress={() => {
+                  go("hub_lan_scan", "Szukam huba w sieci…");
+                  (async () => {
+                    const foundIp = await findHubOnLan(30_000);
+                    if (!isMounted.current) return;
+                    if (foundIp) {
+                      setHubIpInput(foundIp);
+                      await registerHubAt(foundIp, lastMdnsName, lastHubId);
+                    } else {
+                      go("hub_lan_scan", "scan_failed");
+                    }
+                  })();
+                }}
+              />
+              <TouchableOpacity onPress={() => go("hub_ip")} style={{ alignItems: "center", paddingVertical: 10 }}>
+                <Text style={{ color: "#64748b", fontSize: 14 }}>Wpisz adres IP ręcznie</Text>
+              </TouchableOpacity>
             </Card>
           )}
 
